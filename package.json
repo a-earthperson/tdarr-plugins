@@ -1,0 +1,25 @@
+{
+  "name": "tdarr-plugins",
+  "version": "1.0.0",
+  "description": "tdarr is cumbersome and freemiumware - the real magic is in ffmpeg. These are bundled scripts for using ffmpeg gracefully",
+  "main": "reencode.js",
+  "private": true,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.1",
+    "eslint": "^10.3.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.2",
+    "vitest": "^4.1.5"
+  }
+}
