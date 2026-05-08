@@ -53,7 +53,7 @@ describe("plugin decision flow", () => {
       {
         workerType: "cpu",
         ffmpegPath: "ffmpeg",
-      }
+      },
     );
     expect(response.processFile).toBe(true);
     expect(response.preset).toContain("-c:v libx265");
@@ -76,7 +76,7 @@ describe("plugin decision flow", () => {
       {
         workerType: "cpu",
         ffmpegPath: "ffmpeg",
-      }
+      },
     );
     expect(response.processFile).toBe(true);
     expect(response.preset).toContain("-c copy");
@@ -109,7 +109,7 @@ describe("plugin decision flow", () => {
       {
         workerType: "cpu",
         ffmpegPath: "ffmpeg",
-      }
+      },
     );
     expect(response.processFile).toBe(false);
     expect(response.preset).toBe("");

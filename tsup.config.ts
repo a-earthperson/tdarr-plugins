@@ -21,11 +21,8 @@ export default defineConfig({
   async onSuccess() {
     await Promise.all(
       plugins.map(async (plugin) => {
-        await fs.copyFile(
-          path.join("dist", `${plugin.artifactName}.js`),
-          plugin.rootArtifact
-        );
-      })
+        await fs.copyFile(path.join("dist", `${plugin.artifactName}.js`), plugin.rootArtifact);
+      }),
     );
   },
 });

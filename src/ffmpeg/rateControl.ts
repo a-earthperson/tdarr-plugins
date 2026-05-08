@@ -1,7 +1,6 @@
 import type { Encoder, Ffmpeg } from "../tdarr/types";
 
-const normalizeBitrate = (bitrate: number): string =>
-  Math.max(1, Math.round(bitrate)).toString();
+const normalizeBitrate = (bitrate: number): string => Math.max(1, Math.round(bitrate)).toString();
 
 const bitrateArgs = (request: Ffmpeg.RateControlRequest): Ffmpeg.Argv => [
   "-b:v",
@@ -25,17 +24,7 @@ class NvencRateControlStrategy implements RateControlStrategy {
   public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
     const base = bitrateArgs(request);
     return {
-      args: [
-        "-rc:v",
-        "vbr",
-        "-cq:v",
-        "19",
-        ...base,
-        "-spatial_aq:v",
-        "1",
-        "-rc-lookahead:v",
-        "32",
-      ],
+      args: ["-rc:v", "vbr", "-cq:v", "19", ...base, "-spatial_aq:v", "1", "-rc-lookahead:v", "32"],
       description: "NVENC VBR HQ with CQ 19",
     };
   }
@@ -88,7 +77,7 @@ export class RateControlPlanner {
       new QsvRateControlStrategy(),
       new SoftwareRateControlStrategy(),
       new GenericRateControlStrategy(),
-    ]
+    ],
   ) {}
 
   public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
@@ -100,8 +89,6 @@ export class RateControlPlanner {
   }
 }
 
-export const getEncoderRateControl = (
-  request: Ffmpeg.RateControlRequest
-): Ffmpeg.RateControlPlan => {
+export const getEncoderRateControl = (request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan => {
   return new RateControlPlanner().plan(request);
 };

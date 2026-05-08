@@ -1,8 +1,7 @@
 import type { Tdarr } from "../../tdarr/types";
 import type { TwoPassLoudness } from "./types";
 
-const normalize = (value: unknown): string =>
-  typeof value === "string" ? value.trim().toLowerCase() : "";
+const normalize = (value: unknown): string => (typeof value === "string" ? value.trim().toLowerCase() : "");
 
 export class AudioStreamCollection {
   public constructor(public readonly streams: readonly TwoPassLoudness.AudioStream[]) {}
@@ -34,11 +33,10 @@ export class AudioStreamDetector {
         };
         audioIndex += 1;
         return [audioStream];
-      })
+      }),
     );
   }
 }
 
-export const detectAudioStreams = (
-  file: Tdarr.MediaMetadata
-): TwoPassLoudness.AudioStream[] => new AudioStreamDetector().detect(file).toArray();
+export const detectAudioStreams = (file: Tdarr.MediaMetadata): TwoPassLoudness.AudioStream[] =>
+  new AudioStreamDetector().detect(file).toArray();

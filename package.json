@@ -8,6 +8,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "test": "vitest run"
   },
   "keywords": [],
@@ -17,6 +19,8 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.1",
     "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.2",

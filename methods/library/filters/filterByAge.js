@@ -4,17 +4,17 @@ const filterByAge = (file, ageCutOff_Seconds, type) => {
     const dateCreated = new Date(file.statSync.birthtime);
     const fileAge = Math.round((timeNow - dateCreated) / 1000);
 
-    if ((type === 'exclude' && fileAge > ageCutOff_Seconds) || (type === 'include' && fileAge < ageCutOff_Seconds)) {
+    if ((type === "exclude" && fileAge > ageCutOff_Seconds) || (type === "include" && fileAge < ageCutOff_Seconds)) {
       const response = {
         outcome: false,
-        note: 'File creation date is not within specified requirement. Wont process.  \n',
+        note: "File creation date is not within specified requirement. Wont process.  \n",
       };
       return response;
     }
 
     const response = {
       outcome: true,
-      note: 'File creation date is within specified requirement. Will process. \n',
+      note: "File creation date is within specified requirement. Will process. \n",
     };
     return response;
   } catch (err) {

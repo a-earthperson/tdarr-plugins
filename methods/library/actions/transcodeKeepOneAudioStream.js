@@ -1,10 +1,5 @@
 /* eslint-disable */
-module.exports = function transcodeKeepOneAudioStream(
-  file,
-  audioEncoder,
-  langTag,
-  channelCount
-) {
+module.exports = function transcodeKeepOneAudioStream(file, audioEncoder, langTag, channelCount) {
   // response.preset = library.actions.transcodeKeepOneAudioStream(file, 'aac', 'en', 1).preset
 
   //Function required responses
@@ -26,9 +21,7 @@ module.exports = function transcodeKeepOneAudioStream(
 
     var reqLang = langTag;
 
-    var numberOfAudioStreams = file.ffProbeData.streams.filter(
-      (stream) => stream.codec_type == "audio"
-    ).length;
+    var numberOfAudioStreams = file.ffProbeData.streams.filter((stream) => stream.codec_type == "audio").length;
 
     //Step 1: Check if the file already has the required stream codec/langtag/channel count
 
@@ -58,10 +51,7 @@ module.exports = function transcodeKeepOneAudioStream(
       var ffmpegCommandInsert = "";
       for (var i = 0; i < file.ffProbeData.streams.length; i++) {
         try {
-          if (
-            file.ffProbeData.streams[i].codec_type.toLowerCase() == "audio" &&
-            i !== audioStreamToKeep
-          ) {
+          if (file.ffProbeData.streams[i].codec_type.toLowerCase() == "audio" && i !== audioStreamToKeep) {
             ffmpegCommandInsert += ` -map -0:${i}`;
           }
         } catch (err) {}
@@ -78,10 +68,7 @@ module.exports = function transcodeKeepOneAudioStream(
 
     var streamsWithLangTag = file.ffProbeData.streams.filter((stream) => {
       try {
-        if (
-          stream.codec_type == "audio" &&
-          stream.tags.language.toLowerCase().includes(langTag)
-        ) {
+        if (stream.codec_type == "audio" && stream.tags.language.toLowerCase().includes(langTag)) {
           return true;
         }
       } catch (err) {}
@@ -100,10 +87,7 @@ module.exports = function transcodeKeepOneAudioStream(
     function attemptMakeStreamLang(langTag) {
       var streamsWithLangTag = file.ffProbeData.streams.filter((stream) => {
         try {
-          if (
-            stream.codec_type == "audio" &&
-            stream.tags.language.toLowerCase().includes(langTag)
-          ) {
+          if (stream.codec_type == "audio" && stream.tags.language.toLowerCase().includes(langTag)) {
             return true;
           }
         } catch (err) {}
@@ -127,9 +111,7 @@ module.exports = function transcodeKeepOneAudioStream(
             if (
               stream.codec_type == "audio" &&
               stream.codec_name === audioCodec &&
-              stream.tags.language
-                .toLowerCase()
-                .includes(langTag.toLowerCase()) &&
+              stream.tags.language.toLowerCase().includes(langTag.toLowerCase()) &&
               stream.channels == channelCount
             ) {
               return true;
@@ -166,9 +148,7 @@ module.exports = function transcodeKeepOneAudioStream(
             if (
               stream.codec_type == "audio" &&
               stream.codec_name === audioCodec &&
-              stream.tags.language
-                .toLowerCase()
-                .includes(langTag.toLowerCase()) &&
+              stream.tags.language.toLowerCase().includes(langTag.toLowerCase()) &&
               stream.channels == highestChannelCount.channels
             ) {
               return true;
@@ -201,9 +181,7 @@ module.exports = function transcodeKeepOneAudioStream(
     }
 
     function attemptMakeStreamUnd(langTag) {
-      console.log(
-        "No tracks with specified lang tag exist. Checking undefined tracks."
-      );
+      console.log("No tracks with specified lang tag exist. Checking undefined tracks.");
 
       console.log(langTag);
 

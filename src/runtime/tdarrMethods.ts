@@ -24,9 +24,9 @@ const runtimeCandidates = (modulePath: string): string[] => [
 
 export const createDefaultTdarrRuntime = (): Tdarr.RuntimeMethods => {
   try {
-    const libFactory = resolveFromCandidates<
-      () => { loadDefaultValues: Tdarr.RuntimeMethods["loadDefaultValues"] }
-    >(runtimeCandidates("methods/lib"));
+    const libFactory = resolveFromCandidates<() => { loadDefaultValues: Tdarr.RuntimeMethods["loadDefaultValues"] }>(
+      runtimeCandidates("methods/lib"),
+    );
     const nvdecPreset = resolveFromCandidates<{
       getNvdecHwaccelPreset: Tdarr.RuntimeMethods["getNvdecHwaccelPreset"];
       getNvenc10BitFormatArg: Tdarr.RuntimeMethods["getNvenc10BitFormatArg"];
@@ -40,7 +40,7 @@ export const createDefaultTdarrRuntime = (): Tdarr.RuntimeMethods => {
   } catch {
     const fallbackLoadDefaultValues: Tdarr.RuntimeMethods["loadDefaultValues"] = (
       inputs: Record<string, unknown>,
-      detailsProvider: () => Tdarr.PluginDetails
+      detailsProvider: () => Tdarr.PluginDetails,
     ) => {
       const next = { ...(inputs ?? {}) };
       const inputSpecs = detailsProvider().Inputs ?? [];

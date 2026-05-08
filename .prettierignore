@@ -1,0 +1,14 @@
+# Add files here to ignore them from prettier formatting
+dist
+coverage
+/.nx
+node_modules
+pnpm-lock.yaml
+tmp
+.idea
+build
+cmake-build-*
+cmake
+
+/.nx/cache
+/.nx/workspace-data

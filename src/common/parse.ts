@@ -9,11 +9,7 @@ export const parseFiniteNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-export const parseEnum = <T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: T
-): T => {
+export const parseEnum = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T => {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return allowed.includes(normalized as T) ? (normalized as T) : fallback;
 };

@@ -20,7 +20,7 @@ const resolutionTargets: Record<Exclude<Media.VideoResolutionTarget, "none">, Re
 const getResolutionTarget = (
   targetResolution: Media.VideoResolutionTarget,
   width: number,
-  height: number
+  height: number,
 ): { width: number; height: number } | null => {
   if (targetResolution === "none") return null;
   const target = resolutionTargets[targetResolution];
@@ -30,13 +30,9 @@ const getResolutionTarget = (
 
 export const streamNeedsResize = (
   stream: { width?: number; height?: number },
-  targetResolution: Media.VideoResolutionTarget
+  targetResolution: Media.VideoResolutionTarget,
 ): boolean => {
-  if (
-    targetResolution === "none" ||
-    typeof stream.width !== "number" ||
-    typeof stream.height !== "number"
-  ) {
+  if (targetResolution === "none" || typeof stream.width !== "number" || typeof stream.height !== "number") {
     return false;
   }
   const target = getResolutionTarget(targetResolution, stream.width, stream.height);
@@ -44,10 +40,7 @@ export const streamNeedsResize = (
   return stream.width > target.width || stream.height > target.height;
 };
 
-export const getResolutionFilter = (
-  encoder: string,
-  targetResolution: Media.VideoResolutionTarget
-): string => {
+export const getResolutionFilter = (encoder: string, targetResolution: Media.VideoResolutionTarget): string => {
   if (targetResolution === "none") return "";
   const target = resolutionTargets[targetResolution];
   if (!target) return "";
@@ -56,9 +49,6 @@ export const getResolutionFilter = (
   return `${filterName}=w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
 };
 
-export const upsertVideoFilterTokens = (
-  tokens: Ffmpeg.Argv,
-  videoFilter: string
-): Ffmpeg.Argv => {
+export const upsertVideoFilterTokens = (tokens: Ffmpeg.Argv, videoFilter: string): Ffmpeg.Argv => {
   return FfmpegArguments.of(tokens).upsertVideoFilter(videoFilter).toArray();
 };

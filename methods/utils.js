@@ -3,9 +3,7 @@ const strHasValue = (inputsArr, value, exactMatch) => {
 
   for (let j = 0; j < inputsArr.length; j += 1) {
     try {
-      if (
-        (exactMatch && inputsArr[j] === String(value))
-        || (!exactMatch && String(value).includes(inputsArr[j]))) {
+      if ((exactMatch && inputsArr[j] === String(value)) || (!exactMatch && String(value).includes(inputsArr[j]))) {
         contains = true;
         break;
       }

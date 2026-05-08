@@ -38,10 +38,7 @@ export class FfmpegArguments {
   }
 
   public concat(...groups: readonly FfmpegArguments[]): FfmpegArguments {
-    return new FfmpegArguments([
-      ...this.tokens,
-      ...groups.flatMap((group) => group.toArray()),
-    ]);
+    return new FfmpegArguments([...this.tokens, ...groups.flatMap((group) => group.toArray())]);
   }
 
   public upsertVideoFilter(videoFilter: string): FfmpegArguments {
@@ -60,11 +57,13 @@ export class FfmpegArguments {
   }
 
   public render(): Ffmpeg.RenderedArgs {
-    return this.tokens.filter((token) => token.trim() !== "").map(quoteToken).join(" ");
+    return this.tokens
+      .filter((token) => token.trim() !== "")
+      .map(quoteToken)
+      .join(" ");
   }
 }
 
 export const tokenizeArguments = (raw: string): Ffmpeg.Argv => FfmpegArguments.parse(raw).toArray();
 
-export const renderArguments = (tokens: Ffmpeg.Argv): Ffmpeg.RenderedArgs =>
-  FfmpegArguments.of(tokens).render();
+export const renderArguments = (tokens: Ffmpeg.Argv): Ffmpeg.RenderedArgs => FfmpegArguments.of(tokens).render();

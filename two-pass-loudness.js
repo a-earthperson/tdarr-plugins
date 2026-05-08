@@ -6,25 +6,30 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+  for (var name in all) __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
+  if ((from && typeof from === "object") || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+        __defProp(to, key, {
+          get: () => from[key],
+          enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable,
+        });
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
+var __toESM = (mod, isNodeMode, target) => (
+  (target = mod != null ? __create(__getProtoOf(mod)) : {}),
+  __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod,
+  )
+);
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/plugins/two-pass-loudness/index.ts
@@ -32,7 +37,7 @@ var two_pass_loudness_exports = {};
 __export(two_pass_loudness_exports, {
   createPlugin: () => createPlugin,
   details: () => details,
-  plugin: () => plugin
+  plugin: () => plugin,
 });
 module.exports = __toCommonJS(two_pass_loudness_exports);
 
@@ -57,7 +62,7 @@ var runtimeCandidates = (modulePath) => [
   import_node_path.default.join(process.cwd(), modulePath),
   import_node_path.default.join(__dirname, "..", modulePath),
   import_node_path.default.join(__dirname, "..", "..", modulePath),
-  import_node_path.default.join(__dirname, "..", "..", "..", modulePath)
+  import_node_path.default.join(__dirname, "..", "..", "..", modulePath),
 ];
 var createDefaultTdarrRuntime = () => {
   try {
@@ -67,11 +72,11 @@ var createDefaultTdarrRuntime = () => {
     return {
       loadDefaultValues: library.loadDefaultValues,
       getNvdecHwaccelPreset: nvdecPreset.getNvdecHwaccelPreset,
-      getNvenc10BitFormatArg: nvdecPreset.getNvenc10BitFormatArg
+      getNvenc10BitFormatArg: nvdecPreset.getNvenc10BitFormatArg,
     };
   } catch {
     const fallbackLoadDefaultValues = (inputs, detailsProvider) => {
-      const next = { ...inputs ?? {} };
+      const next = { ...(inputs ?? {}) };
       const inputSpecs = detailsProvider().Inputs ?? [];
       inputSpecs.forEach((spec) => {
         const current = next[spec.name];
@@ -85,7 +90,7 @@ var createDefaultTdarrRuntime = () => {
     return {
       loadDefaultValues: fallbackLoadDefaultValues,
       getNvdecHwaccelPreset: () => "",
-      getNvenc10BitFormatArg: () => "-pix_fmt p010le "
+      getNvenc10BitFormatArg: () => "-pix_fmt p010le ",
     };
   }
 };
@@ -125,7 +130,7 @@ var Tdarr;
     "sonarr",
     "pre-processing",
     "post-processing",
-    "configurable"
+    "configurable",
   ];
 })(Tdarr || (Tdarr = {}));
 
@@ -150,16 +155,14 @@ var MediaFile = class {
     }
     return {
       container: "mkv",
-      warnings: [
-        "Input requested original container, but source container was unavailable or unsupported; using mkv."
-      ]
+      warnings: ["Input requested original container, but source container was unavailable or unsupported; using mkv."],
     };
   }
   duration() {
     const candidates = [
       this.metadata.ffProbeData?.format?.duration,
       this.metadata.meta?.Duration,
-      this.metadata.ffProbeData?.streams?.[0]?.duration
+      this.metadata.ffProbeData?.streams?.[0]?.duration,
     ];
     for (const candidate of candidates) {
       const parsed = typeof candidate === "number" ? candidate : Number(candidate);
@@ -170,29 +173,30 @@ var MediaFile = class {
     return {
       kind: "invalid",
       seconds: 0,
-      reason: "Unable to determine media duration."
+      reason: "Unable to determine media duration.",
     };
   }
   bitrateBudget(durationSeconds, multiplier) {
-    const fileSizeMb = typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
+    const fileSizeMb =
+      typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
     if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
       return {
         kind: "invalid",
-        reason: "Unable to calculate bitrate from file_size."
+        reason: "Unable to calculate bitrate from file_size.",
       };
     }
-    const current = fileSizeMb * 1024 * 1024 * 8 / durationSeconds;
+    const current = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
     if (!Number.isFinite(current) || current <= 0) {
       return {
         kind: "invalid",
-        reason: "Computed current bitrate is invalid."
+        reason: "Computed current bitrate is invalid.",
       };
     }
     const target = current * multiplier;
     if (!Number.isFinite(target) || target <= 0) {
       return {
         kind: "invalid",
-        reason: "Computed target bitrate is invalid."
+        reason: "Computed target bitrate is invalid.",
       };
     }
     return {
@@ -201,8 +205,8 @@ var MediaFile = class {
         current,
         target,
         minimum: target * 0.7,
-        maximum: target * 1.3
-      }
+        maximum: target * 1.3,
+      },
     };
   }
   tag(name) {
@@ -220,7 +224,7 @@ var TranscodeResponseBuilder = class {
       FFmpegMode: true,
       reQueueAfter: true,
       infoLog: "",
-      ...initial
+      ...initial,
     };
   }
   setContainer(container) {
@@ -254,7 +258,7 @@ var TranscodeResponseBuilder = class {
 // src/core/plugin.ts
 var defaultChildProcess = {
   exec: import_node_child_process.exec,
-  execSync: import_node_child_process.execSync
+  execSync: import_node_child_process.execSync,
 };
 var TdarrPlugin = class {
   constructor(detailsProvider, options = {}) {
@@ -280,7 +284,7 @@ var TdarrPlugin = class {
         policy: normalized.policy,
         runtime,
         childProcess,
-        response
+        response,
       };
       await this.execute(context);
       return response.toResponse();
@@ -301,7 +305,7 @@ var VideoTdarrPlugin = class extends TdarrPlugin {
 };
 
 // src/plugins/two-pass-loudness/audio.ts
-var normalize = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
+var normalize = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
 var AudioStreamCollection = class {
   constructor(streams) {
     this.streams = streams;
@@ -326,11 +330,11 @@ var AudioStreamDetector = class {
         const audioStream = {
           streamIndex,
           audioIndex,
-          codecName: normalize(stream.codec_name) || "unknown"
+          codecName: normalize(stream.codec_name) || "unknown",
         };
         audioIndex += 1;
         return [audioStream];
-      })
+      }),
     );
   }
 };
@@ -342,7 +346,8 @@ var details = () => ({
   Name: "2 Pass Loudnorm Add Audio Streams",
   Type: "Video",
   Operation: "Transcode",
-  Description: "Runs two-pass ffmpeg loudnorm analysis for every audio stream, then appends one loudness-normalized audio stream per original audio stream while preserving the originals.",
+  Description:
+    "Runs two-pass ffmpeg loudnorm analysis for every audio stream, then appends one loudness-normalized audio stream per original audio stream while preserving the originals.",
   Version: "1.0",
   Tags: "pre-processing,ffmpeg,configurable,audio only",
   Inputs: [
@@ -351,27 +356,27 @@ var details = () => ({
       type: "number",
       defaultValue: -23,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Integrated loudness target for loudnorm I."
+      tooltip: "Integrated loudness target for loudnorm I.",
     },
     {
       name: "lra",
       type: "number",
       defaultValue: 7,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Loudness range target for loudnorm LRA."
+      tooltip: "Loudness range target for loudnorm LRA.",
     },
     {
       name: "tp",
       type: "number",
       defaultValue: -2,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "True peak target for loudnorm TP."
+      tooltip: "True peak target for loudnorm TP.",
     },
     {
       name: "output_codec",
@@ -379,38 +384,38 @@ var details = () => ({
       defaultValue: "aac",
       inputUI: {
         type: "dropdown",
-        options: ["aac", "ac3"]
+        options: ["aac", "ac3"],
       },
-      tooltip: "Codec used for appended normalized audio streams."
+      tooltip: "Codec used for appended normalized audio streams.",
     },
     {
       name: "output_bitrate",
       type: "string",
       defaultValue: "192k",
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Bitrate used for appended normalized audio streams."
+      tooltip: "Bitrate used for appended normalized audio streams.",
     },
     {
       name: "serverIp",
       type: "string",
       defaultValue: "",
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Optional Tdarr server IP override for reading first-pass reports."
+      tooltip: "Optional Tdarr server IP override for reading first-pass reports.",
     },
     {
       name: "serverPort",
       type: "string",
       defaultValue: "",
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Optional Tdarr server port override for reading first-pass reports."
-    }
-  ]
+      tooltip: "Optional Tdarr server port override for reading first-pass reports.",
+    },
+  ],
 });
 
 // src/ffmpeg/args.ts
@@ -447,10 +452,7 @@ var FfmpegArguments = class _FfmpegArguments {
     return new _FfmpegArguments([...this.tokens, ...tokens]);
   }
   concat(...groups) {
-    return new _FfmpegArguments([
-      ...this.tokens,
-      ...groups.flatMap((group) => group.toArray())
-    ]);
+    return new _FfmpegArguments([...this.tokens, ...groups.flatMap((group) => group.toArray())]);
   }
   upsertVideoFilter(videoFilter) {
     if (!videoFilter) return this;
@@ -466,7 +468,10 @@ var FfmpegArguments = class _FfmpegArguments {
     return [...this.tokens];
   }
   render() {
-    return this.tokens.filter((token) => token.trim() !== "").map(quoteToken).join(" ");
+    return this.tokens
+      .filter((token) => token.trim() !== "")
+      .map(quoteToken)
+      .join(" ");
   }
 };
 var renderArguments = (tokens) => FfmpegArguments.of(tokens).render();
@@ -478,7 +483,7 @@ var parseJobName = (text) => {
   const parts = withoutExtension.split("()");
   return {
     jobId: parts[3] ?? "",
-    start: Number(parts[4] ?? 0)
+    start: Number(parts[4] ?? 0),
   };
 };
 var findJsonBlockAfter = (lines, startIndex) => {
@@ -496,7 +501,13 @@ var findJsonBlockAfter = (lines, startIndex) => {
 var isLoudnormMeasuredValues = (value) => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value;
-  return typeof candidate.input_i === "string" && typeof candidate.input_tp === "string" && typeof candidate.input_lra === "string" && typeof candidate.input_thresh === "string" && typeof candidate.target_offset === "string";
+  return (
+    typeof candidate.input_i === "string" &&
+    typeof candidate.input_tp === "string" &&
+    typeof candidate.input_lra === "string" &&
+    typeof candidate.input_thresh === "string" &&
+    typeof candidate.target_offset === "string"
+  );
 };
 var LoudnormReportParser = class {
   parse(report) {
@@ -515,14 +526,16 @@ var LoudnormReportParser = class {
     return values;
   }
 };
-var loudnormAnalysisExpression = (policy) => `loudnorm=I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:print_format=json`;
-var loudnormApplyExpression = (policy, measured) => `loudnorm=print_format=summary:linear=true:I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:measured_i=${measured.input_i}:measured_lra=${measured.input_lra}:measured_tp=${measured.input_tp}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}`;
+var loudnormAnalysisExpression = (policy) =>
+  `loudnorm=I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:print_format=json`;
+var loudnormApplyExpression = (policy, measured) =>
+  `loudnorm=print_format=summary:linear=true:I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:measured_i=${measured.input_i}:measured_lra=${measured.input_lra}:measured_tp=${measured.input_tp}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}`;
 var LoudnormCommandBuilder = class {
   buildFirstPassArgs(params) {
     const labels = params.audioStreams.map((_, index) => `ln${index}`);
-    const filterComplex = params.audioStreams.map(
-      (stream, index) => `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`
-    ).join(";");
+    const filterComplex = params.audioStreams
+      .map((stream, index) => `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`)
+      .join(";");
     return [
       "<io>",
       "-filter_complex",
@@ -536,14 +549,17 @@ var LoudnormCommandBuilder = class {
       "-c",
       "copy",
       "-metadata",
-      `${normalisationStageTag}=FirstPassComplete`
+      `${normalisationStageTag}=FirstPassComplete`,
     ];
   }
   buildSecondPassArgs(params) {
     const labels = params.audioStreams.map((_, index) => `ln${index}`);
-    const filterComplex = params.audioStreams.map(
-      (stream, index) => `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`
-    ).join(";");
+    const filterComplex = params.audioStreams
+      .map(
+        (stream, index) =>
+          `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`,
+      )
+      .join(";");
     const appendedAudioCodecArgs = params.audioStreams.flatMap((stream, index) => {
       const outputAudioIndex = params.audioStreams.length + index;
       return [
@@ -552,7 +568,7 @@ var LoudnormCommandBuilder = class {
         `-b:a:${outputAudioIndex}`,
         params.policy.outputBitrate,
         `-metadata:s:a:${outputAudioIndex}`,
-        `title=Loudness normalized ${stream.codecName}`
+        `title=Loudness normalized ${stream.codecName}`,
       ];
     });
     return [
@@ -567,7 +583,7 @@ var LoudnormCommandBuilder = class {
       "copy",
       ...appendedAudioCodecArgs,
       "-metadata",
-      `${normalisationStageTag}=Complete`
+      `${normalisationStageTag}=Complete`,
     ];
   }
 };
@@ -599,9 +615,9 @@ var TwoPassLoudnessPolicy = class _TwoPassLoudnessPolicy {
         parseEnum(rawInputs.output_codec, outputCodecs, "aac"),
         normalizeOptionalString(rawInputs.output_bitrate) ?? "192k",
         normalizeOptionalString(rawInputs.serverIp),
-        normalizeOptionalString(rawInputs.serverPort)
+        normalizeOptionalString(rawInputs.serverPort),
       ),
-      warnings: []
+      warnings: [],
     };
   }
 };
@@ -620,13 +636,13 @@ var getServerUrl = (policy) => {
 };
 var postJson = async (fetchImpl, url, body, apiKey) => {
   const headers = {
-    "content-type": "application/json"
+    "content-type": "application/json",
   };
   if (apiKey) headers["x-api-key"] = apiKey;
   const response = await fetchImpl(url, {
     method: "POST",
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
   if (response.status !== 200) {
     throw new Error(`Tdarr report API returned status ${response.status}.`);
@@ -661,10 +677,10 @@ var HttpTdarrReportClient = class {
       `${this.serverUrl}/api/v2/list-footprintId-reports`,
       {
         data: {
-          footprintId: file.footprintId
-        }
+          footprintId: file.footprintId,
+        },
       },
-      this.apiKey
+      this.apiKey,
     );
     return expectStringArray(response).sort((left, right) => {
       const leftJob = parseJobName(left);
@@ -680,10 +696,10 @@ var HttpTdarrReportClient = class {
         data: {
           footprintId: file.footprintId,
           jobId: parseJobName(jobFileId).jobId,
-          jobFileId
-        }
+          jobFileId,
+        },
       },
-      this.apiKey
+      this.apiKey,
     );
     return expectReportText(response);
   }
@@ -730,16 +746,14 @@ var TwoPassLoudnessPlugin = class extends VideoTdarrPlugin {
     }
     const stage = LoudnessStage.from(context.rawFile);
     if (stage.isPendingFirstPass()) {
-      context.response.log(
-        `Detected ${audioStreams.length} audio stream(s). Running loudnorm analysis pass.`
-      );
+      context.response.log(`Detected ${audioStreams.length} audio stream(s). Running loudnorm analysis pass.`);
       context.response.transcode(
         renderPreset(
           this.commandBuilder.buildFirstPassArgs({
             audioStreams: audioStreams.toArray(),
-            policy: context.policy
-          })
-        )
+            policy: context.policy,
+          }),
+        ),
       );
       return;
     }
@@ -755,37 +769,37 @@ var TwoPassLoudnessPlugin = class extends VideoTdarrPlugin {
     const report = await reportClient.readJobFile(context.rawFile, reports[0]);
     const measuredValues = this.reportParser.parse(report);
     if (measuredValues.length < audioStreams.length) {
-      throw new Error(
-        `Expected ${audioStreams.length} loudnorm measurement set(s), found ${measuredValues.length}.`
-      );
+      throw new Error(`Expected ${audioStreams.length} loudnorm measurement set(s), found ${measuredValues.length}.`);
     }
-    context.response.log(
-      `Read ${measuredValues.length} loudnorm measurement set(s) from first-pass report.`
-    );
+    context.response.log(`Read ${measuredValues.length} loudnorm measurement set(s) from first-pass report.`);
     context.response.transcode(
       renderPreset(
         this.commandBuilder.buildSecondPassArgs({
           audioStreams: audioStreams.toArray(),
           measuredValues,
-          policy: context.policy
-        })
-      )
+          policy: context.policy,
+        }),
+      ),
     );
     context.response.log("Applying loudness normalization and appending normalized audio streams.");
   }
   resolveReportClient(context) {
-    return this.options.reportClient ?? createTdarrReportClient({
-      policy: context.policy,
-      host: context.host,
-      fetchImpl: this.options.fetchImpl
-    });
+    return (
+      this.options.reportClient ??
+      createTdarrReportClient({
+        policy: context.policy,
+        host: context.host,
+        fetchImpl: this.options.fetchImpl,
+      })
+    );
   }
 };
 var createPlugin = (options) => new TwoPassLoudnessPlugin(options).entrypoint();
 var plugin = createPlugin();
 // Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  createPlugin,
-  details,
-  plugin
-});
+0 &&
+  (module.exports = {
+    createPlugin,
+    details,
+    plugin,
+  });

@@ -17,12 +17,10 @@ export class TwoPassLoudnessPolicy implements TwoPassLoudness.Policy {
     public readonly outputCodec: TwoPassLoudness.Policy["outputCodec"],
     public readonly outputBitrate: string,
     public readonly serverIp?: string,
-    public readonly serverPort?: string
+    public readonly serverPort?: string,
   ) {}
 
-  public static fromInputs(
-    rawInputs: Record<string, unknown>
-  ): TwoPassLoudness.NormalizedInputResult {
+  public static fromInputs(rawInputs: Record<string, unknown>): TwoPassLoudness.NormalizedInputResult {
     return {
       policy: new TwoPassLoudnessPolicy(
         parseFiniteNumber(rawInputs.i, -23.0),
@@ -31,15 +29,13 @@ export class TwoPassLoudnessPolicy implements TwoPassLoudness.Policy {
         parseEnum(rawInputs.output_codec, outputCodecs, "aac"),
         normalizeOptionalString(rawInputs.output_bitrate) ?? "192k",
         normalizeOptionalString(rawInputs.serverIp),
-        normalizeOptionalString(rawInputs.serverPort)
+        normalizeOptionalString(rawInputs.serverPort),
       ),
       warnings: [],
     };
   }
 }
 
-export const normalizeInputs = (
-  rawInputs: Record<string, unknown>
-): TwoPassLoudness.NormalizedInputResult => {
+export const normalizeInputs = (rawInputs: Record<string, unknown>): TwoPassLoudness.NormalizedInputResult => {
   return TwoPassLoudnessPolicy.fromInputs(rawInputs);
 };

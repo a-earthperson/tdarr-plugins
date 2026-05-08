@@ -11,10 +11,7 @@ import type { Reencode } from "./types";
 
 const bframeSupport = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
 
-const renderStreamDecision = (
-  decision: StreamDecision,
-  targetContainer: string
-): string => {
+const renderStreamDecision = (decision: StreamDecision, targetContainer: string): string => {
   switch (decision.kind) {
     case "drop-unsupported":
       return `Dropping stream 0:${decision.streamIndex} because codec "${decision.codecName}" is unsupported.`;
@@ -40,9 +37,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     return normalizeInputs(rawInputs);
   }
 
-  protected async executeVideo(
-    context: PluginExecutionContext<Reencode.Policy>
-  ): Promise<void> {
+  protected async executeVideo(context: PluginExecutionContext<Reencode.Policy>): Promise<void> {
     const { media, policy, response } = context;
     const targetContainerResult = media.resolveContainer(policy.container);
     response.logAll(targetContainerResult.warnings);
@@ -79,33 +74,24 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     const streamResult = new ReencodeStreamAnalyzer(
       policy.targetResolution,
       policy.forceConform,
-      targetContainer
+      targetContainer,
     ).analyze(media.streams);
-    response.logAll(
-      streamResult.decisions.map((decision) => renderStreamDecision(decision, targetContainer))
-    );
+    response.logAll(streamResult.decisions.map((decision) => renderStreamDecision(decision, targetContainer)));
 
     if (streamResult.primaryVideoStreamIndex === -1) {
       response.log("No supported video stream found.").skip();
       return;
     }
 
-    const mapTokens = streamMapTokens([
-      streamResult.primaryVideoStreamIndex,
-      ...streamResult.passthroughStreamIndexes,
-    ]);
+    const mapTokens = streamMapTokens([streamResult.primaryVideoStreamIndex, ...streamResult.passthroughStreamIndexes]);
     let extraArgs = FfmpegArguments.empty();
     if (policy.enable10Bit) {
-      extraArgs = extraArgs.concat(
-        FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile))
-      );
+      extraArgs = extraArgs.concat(FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile)));
     }
     if (bframeSupport.has(encoder.name) && policy.bFrames.enabled) {
       extraArgs = extraArgs.append("-bf", String(policy.bFrames.count));
     }
-    extraArgs = extraArgs.upsertVideoFilter(
-      getResolutionFilter(encoder.name, policy.targetResolution)
-    );
+    extraArgs = extraArgs.upsertVideoFilter(getResolutionFilter(encoder.name, policy.targetResolution));
 
     const rateControl = new RateControlPlanner().plan({
       encoderName: encoder.name,
@@ -126,12 +112,12 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
 
     if (streamResult.primaryVideoCodec === policy.targetCodec && !streamResult.resizeRequired) {
       response.log(
-        `File video is already ${policy.targetCodec} but stream mapping/container needs normalization. Remuxing.`
+        `File video is already ${policy.targetCodec} but stream mapping/container needs normalization. Remuxing.`,
       );
       response.transcode(
         FfmpegArguments.of(["<io>", ...mapTokens, "-c", "copy"])
           .concat(extraArgs)
-          .render()
+          .render(),
       );
       return;
     }
@@ -144,7 +130,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
         extraArgs,
         targetContainer,
         context,
-      })
+      }),
     );
     response.log(`File is not in ${policy.targetCodec}. Transcoding.`);
   }
@@ -154,7 +140,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     encoder: Encoder.Candidate,
     rateControl: Ffmpeg.RateControlPlan,
     targetContainer: string,
-    bitrate: Media.BitrateBudget
+    bitrate: Media.BitrateBudget,
   ): void {
     const { response, policy } = context;
     response.log(`Encoder selected as ${encoder.name}.`);
@@ -179,7 +165,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     let prefixArgs = FfmpegArguments.empty();
     if (params.encoder.family === "nvenc") {
       prefixArgs = prefixArgs.concat(
-        FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile))
+        FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile)),
       );
     }
     prefixArgs = prefixArgs.append(...params.encoder.inputArgs);
@@ -204,9 +190,8 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
   }
 }
 
-export const createPlugin = (
-  options?: Partial<Runtime.Dependencies>
-): Tdarr.PluginEntrypoint => new ReencodePlugin(options).entrypoint();
+export const createPlugin = (options?: Partial<Runtime.Dependencies>): Tdarr.PluginEntrypoint =>
+  new ReencodePlugin(options).entrypoint();
 
 export { details };
 export const plugin = createPlugin();

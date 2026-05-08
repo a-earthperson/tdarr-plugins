@@ -1,8 +1,4 @@
-import {
-  parseBoolean,
-  parseEnum,
-  parseFiniteNumber,
-} from "../../common/parse";
+import { parseBoolean, parseEnum, parseFiniteNumber } from "../../common/parse";
 import { MediaFile } from "../../core/mediaFile";
 import type { Media, Tdarr } from "../../tdarr/types";
 import { Media as MediaValues } from "../../tdarr/types";
@@ -29,31 +25,22 @@ export class ReencodePolicy implements Reencode.Policy {
     public readonly enable10Bit: boolean,
     public readonly bFrames: Reencode.Policy["bFrames"],
     public readonly forceConform: boolean,
-    public readonly excludedGpuIds: readonly number[]
+    public readonly excludedGpuIds: readonly number[],
   ) {}
 
   public static fromInputs(rawInputs: Record<string, unknown>): Reencode.NormalizedInputResult {
     const warnings: string[] = [];
-    const targetBitrateMultiplier = Math.max(
-      0,
-      parseFiniteNumber(rawInputs.target_bitrate_multiplier, 0.5)
-    );
+    const targetBitrateMultiplier = Math.max(0, parseFiniteNumber(rawInputs.target_bitrate_multiplier, 0.5));
 
     if (targetBitrateMultiplier === 0) {
-      warnings.push(
-        "target_bitrate_multiplier resolved to 0; no valid bitrate target is configured."
-      );
+      warnings.push("target_bitrate_multiplier resolved to 0; no valid bitrate target is configured.");
     }
 
     return {
       policy: new ReencodePolicy(
         parseEnum(rawInputs.target_codec, MediaValues.videoCodecs, "hevc"),
         targetBitrateMultiplier,
-        parseEnum(
-        rawInputs.target_resolution,
-        MediaValues.videoResolutionTargets,
-        "none"
-      ),
+        parseEnum(rawInputs.target_resolution, MediaValues.videoResolutionTargets, "none"),
         parseBoolean(rawInputs.try_use_gpu, true),
         parseEnum(rawInputs.container, [...MediaValues.outputContainers, "original"], "mkv"),
         Math.max(0, parseFiniteNumber(rawInputs.bitrate_cutoff, 0)),
@@ -63,7 +50,7 @@ export class ReencodePolicy implements Reencode.Policy {
           count: Math.max(0, Math.round(parseFiniteNumber(rawInputs.bframes_value, 5))),
         },
         parseBoolean(rawInputs.force_conform, false),
-        parseExcludedGpuIds(rawInputs.exclude_gpus)
+        parseExcludedGpuIds(rawInputs.exclude_gpus),
       ),
       warnings,
     };
@@ -82,9 +69,7 @@ export class ReencodePolicy implements Reencode.Policy {
   }
 }
 
-export const normalizeInputs = (
-  rawInputs: Record<string, unknown>
-): Reencode.NormalizedInputResult => {
+export const normalizeInputs = (rawInputs: Record<string, unknown>): Reencode.NormalizedInputResult => {
   return ReencodePolicy.fromInputs(rawInputs);
 };
 
@@ -93,42 +78,32 @@ export interface TargetContainerResult {
   warnings: readonly string[];
 }
 
-export const resolveTargetContainer = (
-  policy: Reencode.Policy,
-  file: Tdarr.MediaMetadata
-): TargetContainerResult => {
+export const resolveTargetContainer = (policy: Reencode.Policy, file: Tdarr.MediaMetadata): TargetContainerResult => {
   return new MediaFile(file).resolveContainer(policy.container);
 };
 
-export const resolveDurationSeconds = (
-  file: Tdarr.MediaMetadata
-): Media.DurationResult => {
+export const resolveDurationSeconds = (file: Tdarr.MediaMetadata): Media.DurationResult => {
   return new MediaFile(file).duration();
 };
 
 export const calculateBitrateBudget = (
   file: Tdarr.MediaMetadata,
   durationSeconds: number,
-  multiplier: number
+  multiplier: number,
 ): Media.BitrateBudgetResult => {
   return new MediaFile(file).bitrateBudget(durationSeconds, multiplier);
 };
 
 export const shouldDropForContainerConformance = (
   container: Media.OutputContainer,
-  streamCodecName: string
+  streamCodecName: string,
 ): boolean => {
   const codec = streamCodecName.trim().toLowerCase();
   if (container === "mkv") {
     return codec === "mov_text" || codec === "eia_608" || codec === "timed_id3";
   }
   if (container === "mp4") {
-    return (
-      codec === "hdmv_pgs_subtitle" ||
-      codec === "eia_608" ||
-      codec === "subrip" ||
-      codec === "timed_id3"
-    );
+    return codec === "hdmv_pgs_subtitle" || codec === "eia_608" || codec === "subrip" || codec === "timed_id3";
   }
   return false;
 };

@@ -6,25 +6,30 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+  for (var name in all) __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
+  if ((from && typeof from === "object") || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+        __defProp(to, key, {
+          get: () => from[key],
+          enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable,
+        });
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
+var __toESM = (mod, isNodeMode, target) => (
+  (target = mod != null ? __create(__getProtoOf(mod)) : {}),
+  __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod,
+  )
+);
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/plugins/reencode/index.ts
@@ -32,7 +37,7 @@ var reencode_exports = {};
 __export(reencode_exports, {
   createPlugin: () => createPlugin,
   details: () => details,
-  plugin: () => plugin
+  plugin: () => plugin,
 });
 module.exports = __toCommonJS(reencode_exports);
 
@@ -57,7 +62,7 @@ var runtimeCandidates = (modulePath) => [
   import_node_path.default.join(process.cwd(), modulePath),
   import_node_path.default.join(__dirname, "..", modulePath),
   import_node_path.default.join(__dirname, "..", "..", modulePath),
-  import_node_path.default.join(__dirname, "..", "..", "..", modulePath)
+  import_node_path.default.join(__dirname, "..", "..", "..", modulePath),
 ];
 var createDefaultTdarrRuntime = () => {
   try {
@@ -67,11 +72,11 @@ var createDefaultTdarrRuntime = () => {
     return {
       loadDefaultValues: library.loadDefaultValues,
       getNvdecHwaccelPreset: nvdecPreset.getNvdecHwaccelPreset,
-      getNvenc10BitFormatArg: nvdecPreset.getNvenc10BitFormatArg
+      getNvenc10BitFormatArg: nvdecPreset.getNvenc10BitFormatArg,
     };
   } catch {
     const fallbackLoadDefaultValues = (inputs, detailsProvider) => {
-      const next = { ...inputs ?? {} };
+      const next = { ...(inputs ?? {}) };
       const inputSpecs = detailsProvider().Inputs ?? [];
       inputSpecs.forEach((spec) => {
         const current = next[spec.name];
@@ -85,7 +90,7 @@ var createDefaultTdarrRuntime = () => {
     return {
       loadDefaultValues: fallbackLoadDefaultValues,
       getNvdecHwaccelPreset: () => "",
-      getNvenc10BitFormatArg: () => "-pix_fmt p010le "
+      getNvenc10BitFormatArg: () => "-pix_fmt p010le ",
     };
   }
 };
@@ -130,7 +135,7 @@ var Tdarr;
     "sonarr",
     "pre-processing",
     "post-processing",
-    "configurable"
+    "configurable",
   ];
 })(Tdarr || (Tdarr = {}));
 
@@ -155,16 +160,14 @@ var MediaFile = class {
     }
     return {
       container: "mkv",
-      warnings: [
-        "Input requested original container, but source container was unavailable or unsupported; using mkv."
-      ]
+      warnings: ["Input requested original container, but source container was unavailable or unsupported; using mkv."],
     };
   }
   duration() {
     const candidates = [
       this.metadata.ffProbeData?.format?.duration,
       this.metadata.meta?.Duration,
-      this.metadata.ffProbeData?.streams?.[0]?.duration
+      this.metadata.ffProbeData?.streams?.[0]?.duration,
     ];
     for (const candidate2 of candidates) {
       const parsed = typeof candidate2 === "number" ? candidate2 : Number(candidate2);
@@ -175,29 +178,30 @@ var MediaFile = class {
     return {
       kind: "invalid",
       seconds: 0,
-      reason: "Unable to determine media duration."
+      reason: "Unable to determine media duration.",
     };
   }
   bitrateBudget(durationSeconds, multiplier) {
-    const fileSizeMb = typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
+    const fileSizeMb =
+      typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
     if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
       return {
         kind: "invalid",
-        reason: "Unable to calculate bitrate from file_size."
+        reason: "Unable to calculate bitrate from file_size.",
       };
     }
-    const current = fileSizeMb * 1024 * 1024 * 8 / durationSeconds;
+    const current = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
     if (!Number.isFinite(current) || current <= 0) {
       return {
         kind: "invalid",
-        reason: "Computed current bitrate is invalid."
+        reason: "Computed current bitrate is invalid.",
       };
     }
     const target = current * multiplier;
     if (!Number.isFinite(target) || target <= 0) {
       return {
         kind: "invalid",
-        reason: "Computed target bitrate is invalid."
+        reason: "Computed target bitrate is invalid.",
       };
     }
     return {
@@ -206,8 +210,8 @@ var MediaFile = class {
         current,
         target,
         minimum: target * 0.7,
-        maximum: target * 1.3
-      }
+        maximum: target * 1.3,
+      },
     };
   }
   tag(name) {
@@ -225,7 +229,7 @@ var TranscodeResponseBuilder = class {
       FFmpegMode: true,
       reQueueAfter: true,
       infoLog: "",
-      ...initial
+      ...initial,
     };
   }
   setContainer(container) {
@@ -259,7 +263,7 @@ var TranscodeResponseBuilder = class {
 // src/core/plugin.ts
 var defaultChildProcess = {
   exec: import_node_child_process.exec,
-  execSync: import_node_child_process.execSync
+  execSync: import_node_child_process.execSync,
 };
 var TdarrPlugin = class {
   constructor(detailsProvider, options = {}) {
@@ -285,7 +289,7 @@ var TdarrPlugin = class {
         policy: normalized.policy,
         runtime,
         childProcess,
-        response
+        response,
       };
       await this.execute(context);
       return response.toResponse();
@@ -339,10 +343,7 @@ var FfmpegArguments = class _FfmpegArguments {
     return new _FfmpegArguments([...this.tokens, ...tokens]);
   }
   concat(...groups) {
-    return new _FfmpegArguments([
-      ...this.tokens,
-      ...groups.flatMap((group) => group.toArray())
-    ]);
+    return new _FfmpegArguments([...this.tokens, ...groups.flatMap((group) => group.toArray())]);
   }
   upsertVideoFilter(videoFilter) {
     if (!videoFilter) return this;
@@ -358,7 +359,10 @@ var FfmpegArguments = class _FfmpegArguments {
     return [...this.tokens];
   }
   render() {
-    return this.tokens.filter((token) => token.trim() !== "").map(quoteToken).join(" ");
+    return this.tokens
+      .filter((token) => token.trim() !== "")
+      .map(quoteToken)
+      .join(" ");
   }
 };
 var renderArguments = (tokens) => FfmpegArguments.of(tokens).render();
@@ -376,7 +380,11 @@ var NvencDeviceSelector = class {
     let gpuNames = [];
     try {
       const output = this.childProcess.execSync("nvidia-smi --query-gpu=name --format=csv,noheader");
-      gpuNames = output.toString().trim().split(/\r?\n/).filter((line) => line && !line.includes("nvidia-smi"));
+      gpuNames = output
+        .toString()
+        .trim()
+        .split(/\r?\n/)
+        .filter((line) => line && !line.includes("nvidia-smi"));
     } catch {
       logs.push("Error in reading nvidia-smi output.");
     }
@@ -404,9 +412,9 @@ var NvencDeviceSelector = class {
         candidate: {
           ...nvencCandidate,
           inputArgs: ["-hwaccel_device", String(selectedGpu)],
-          outputArgs: ["-gpu", String(selectedGpu)]
+          outputArgs: ["-gpu", String(selectedGpu)],
         },
-        logs
+        logs,
       };
     }
     return { candidate: nvencCandidate, logs };
@@ -433,7 +441,7 @@ var EncoderProbe = class {
         candidate2.name,
         "-f",
         "null",
-        "/dev/null"
+        "/dev/null",
       ]);
       this.childProcess.exec(command, (error) => {
         resolve(!error);
@@ -447,9 +455,10 @@ var candidate = (name, codec, family, inputArgs = [], probeFilterArgs = []) => (
   family,
   inputArgs,
   outputArgs: [],
-  probeFilterArgs
+  probeFilterArgs,
 });
-var softwareCandidate = (codec) => codec === "hevc" ? candidate("libx265", "hevc", "software") : candidate("libx264", "h264", "software");
+var softwareCandidate = (codec) =>
+  codec === "hevc" ? candidate("libx265", "hevc", "software") : candidate("libx264", "h264", "software");
 var workerCanUseGpu = (workerType) => typeof workerType === "string" && workerType.toLowerCase().includes("gpu");
 var EncoderCatalog = class {
   constructor() {
@@ -460,15 +469,8 @@ var EncoderCatalog = class {
         "hevc_vaapi",
         "hevc",
         "vaapi",
-        [
-          "-hwaccel",
-          "vaapi",
-          "-hwaccel_device",
-          "/dev/dri/renderD128",
-          "-hwaccel_output_format",
-          "vaapi"
-        ],
-        ["-vf", "format=nv12,hwupload"]
+        ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"],
+        ["-vf", "format=nv12,hwupload"],
       ),
       candidate("hevc_rkmpp", "hevc", "rkmpp"),
       candidate("hevc_qsv", "hevc", "qsv"),
@@ -477,7 +479,7 @@ var EncoderCatalog = class {
       candidate("h264_rkmpp", "h264", "rkmpp"),
       candidate("h264_amf", "h264", "amf"),
       candidate("h264_qsv", "h264", "qsv"),
-      candidate("h264_videotoolbox", "h264", "videotoolbox")
+      candidate("h264_videotoolbox", "h264", "videotoolbox"),
     ];
   }
   hardwareFor(codec) {
@@ -512,7 +514,7 @@ var EncoderSelector = class {
         if (selected.family === "nvenc") {
           return new NvencDeviceSelector(this.childProcess).select({
             excludedGpuIds: policy.excludedGpuIds,
-            nvencCandidate: selected
+            nvencCandidate: selected,
           });
         }
         return { candidate: selected, logs: [] };
@@ -526,12 +528,12 @@ var EncoderSelector = class {
 var resolutionTargets = {
   "720p": {
     landscape: { width: 1280, height: 720 },
-    portrait: { width: 720, height: 1280 }
+    portrait: { width: 720, height: 1280 },
   },
   "480p": {
     landscape: { width: 854, height: 480 },
-    portrait: { width: 480, height: 854 }
-  }
+    portrait: { width: 480, height: 854 },
+  },
 };
 var getResolutionTarget = (targetResolution, width, height) => {
   if (targetResolution === "none") return null;
@@ -564,7 +566,7 @@ var bitrateArgs = (request) => [
   "-maxrate",
   normalizeBitrate(request.bitrate.maximum),
   "-bufsize",
-  normalizeBitrate(request.bitrate.current)
+  normalizeBitrate(request.bitrate.current),
 ];
 var NvencRateControlStrategy = class {
   supports(encoderName) {
@@ -573,18 +575,8 @@ var NvencRateControlStrategy = class {
   plan(request) {
     const base = bitrateArgs(request);
     return {
-      args: [
-        "-rc:v",
-        "vbr",
-        "-cq:v",
-        "19",
-        ...base,
-        "-spatial_aq:v",
-        "1",
-        "-rc-lookahead:v",
-        "32"
-      ],
-      description: "NVENC VBR HQ with CQ 19"
+      args: ["-rc:v", "vbr", "-cq:v", "19", ...base, "-spatial_aq:v", "1", "-rc-lookahead:v", "32"],
+      description: "NVENC VBR HQ with CQ 19",
     };
   }
 };
@@ -596,7 +588,7 @@ var QsvRateControlStrategy = class {
     const base = bitrateArgs(request);
     return {
       args: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
-      description: "QSV bitrate mode with extbrc lookahead"
+      description: "QSV bitrate mode with extbrc lookahead",
     };
   }
 };
@@ -607,7 +599,7 @@ var SoftwareRateControlStrategy = class {
   plan(request) {
     return {
       args: bitrateArgs(request),
-      description: "software encoder bitrate mode"
+      description: "software encoder bitrate mode",
     };
   }
 };
@@ -618,17 +610,19 @@ var GenericRateControlStrategy = class {
   plan(request) {
     return {
       args: bitrateArgs(request),
-      description: "generic bitrate mode"
+      description: "generic bitrate mode",
     };
   }
 };
 var RateControlPlanner = class {
-  constructor(strategies = [
-    new NvencRateControlStrategy(),
-    new QsvRateControlStrategy(),
-    new SoftwareRateControlStrategy(),
-    new GenericRateControlStrategy()
-  ]) {
+  constructor(
+    strategies = [
+      new NvencRateControlStrategy(),
+      new QsvRateControlStrategy(),
+      new SoftwareRateControlStrategy(),
+      new GenericRateControlStrategy(),
+    ],
+  ) {
     this.strategies = strategies;
   }
   plan(request) {
@@ -657,18 +651,19 @@ var details = () => ({
       defaultValue: "hevc",
       inputUI: {
         type: "dropdown",
-        options: ["hevc", "h264"]
+        options: ["hevc", "h264"],
       },
-      tooltip: "Specify the codec to use"
+      tooltip: "Specify the codec to use",
     },
     {
       name: "target_bitrate_multiplier",
       type: "number",
       defaultValue: 0.5,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Specify the multiplier to use to calculate the target bitrate. Default of 0.5 will roughly half the size of the file."
+      tooltip:
+        "Specify the multiplier to use to calculate the target bitrate. Default of 0.5 will roughly half the size of the file.",
     },
     {
       name: "target_resolution",
@@ -676,9 +671,10 @@ var details = () => ({
       defaultValue: "none",
       inputUI: {
         type: "dropdown",
-        options: ["none", "720p", "480p"]
+        options: ["none", "720p", "480p"],
       },
-      tooltip: "Optionally rescale the video to the selected resolution target. This is independent of target_bitrate_multiplier and does not adjust bitrate calculations."
+      tooltip:
+        "Optionally rescale the video to the selected resolution target. This is independent of target_bitrate_multiplier and does not adjust bitrate calculations.",
     },
     {
       name: "try_use_gpu",
@@ -686,9 +682,9 @@ var details = () => ({
       defaultValue: true,
       inputUI: {
         type: "dropdown",
-        options: ["false", "true"]
+        options: ["false", "true"],
       },
-      tooltip: "If enabled then will use GPU if possible."
+      tooltip: "If enabled then will use GPU if possible.",
     },
     {
       name: "container",
@@ -696,18 +692,19 @@ var details = () => ({
       defaultValue: "mkv",
       inputUI: {
         type: "dropdown",
-        options: ["mkv", "mp4", "avi", "ts", "original"]
+        options: ["mkv", "mp4", "avi", "ts", "original"],
       },
-      tooltip: "Specify output container of file. Use 'original' to keep original container. Ensure stream types are supported by container. mkv is recommended."
+      tooltip:
+        "Specify output container of file. Use 'original' to keep original container. Ensure stream types are supported by container. mkv is recommended.",
     },
     {
       name: "bitrate_cutoff",
       type: "number",
       defaultValue: 0,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Specify bitrate cutoff in kbps. Files with current bitrate lower than this are not transcoded."
+      tooltip: "Specify bitrate cutoff in kbps. Files with current bitrate lower than this are not transcoded.",
     },
     {
       name: "enable_10bit",
@@ -715,9 +712,9 @@ var details = () => ({
       defaultValue: false,
       inputUI: {
         type: "dropdown",
-        options: ["false", "true"]
+        options: ["false", "true"],
       },
-      tooltip: "Specify if output file should be 10bit."
+      tooltip: "Specify if output file should be 10bit.",
     },
     {
       name: "bframes_enabled",
@@ -725,18 +722,18 @@ var details = () => ({
       defaultValue: false,
       inputUI: {
         type: "dropdown",
-        options: ["false", "true"]
+        options: ["false", "true"],
       },
-      tooltip: "Specify if b frames should be used. This can decrease file sizes but needs newer GPUs."
+      tooltip: "Specify if b frames should be used. This can decrease file sizes but needs newer GPUs.",
     },
     {
       name: "bframes_value",
       type: "number",
       defaultValue: 5,
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Specify number of bframes to use."
+      tooltip: "Specify number of bframes to use.",
     },
     {
       name: "force_conform",
@@ -744,20 +741,20 @@ var details = () => ({
       defaultValue: false,
       inputUI: {
         type: "dropdown",
-        options: ["false", "true"]
+        options: ["false", "true"],
       },
-      tooltip: "Conform to output container requirements by dropping incompatible streams."
+      tooltip: "Conform to output container requirements by dropping incompatible streams.",
     },
     {
       name: "exclude_gpus",
       type: "string",
       defaultValue: "",
       inputUI: {
-        type: "text"
+        type: "text",
       },
-      tooltip: "Comma-separated GPU ids to exclude from NVENC selection."
-    }
-  ]
+      tooltip: "Comma-separated GPU ids to exclude from NVENC selection.",
+    },
+  ],
 });
 
 // src/plugins/reencode/policy.ts
@@ -771,7 +768,18 @@ var parseExcludedGpuIds = (value) => {
   return [...unique];
 };
 var ReencodePolicy = class _ReencodePolicy {
-  constructor(targetCodec, targetBitrateMultiplier, targetResolution, tryUseGpu, container, bitrateCutoff, enable10Bit, bFrames, forceConform, excludedGpuIds) {
+  constructor(
+    targetCodec,
+    targetBitrateMultiplier,
+    targetResolution,
+    tryUseGpu,
+    container,
+    bitrateCutoff,
+    enable10Bit,
+    bFrames,
+    forceConform,
+    excludedGpuIds,
+  ) {
     this.targetCodec = targetCodec;
     this.targetBitrateMultiplier = targetBitrateMultiplier;
     this.targetResolution = targetResolution;
@@ -785,43 +793,34 @@ var ReencodePolicy = class _ReencodePolicy {
   }
   static fromInputs(rawInputs) {
     const warnings = [];
-    const targetBitrateMultiplier = Math.max(
-      0,
-      parseFiniteNumber(rawInputs.target_bitrate_multiplier, 0.5)
-    );
+    const targetBitrateMultiplier = Math.max(0, parseFiniteNumber(rawInputs.target_bitrate_multiplier, 0.5));
     if (targetBitrateMultiplier === 0) {
-      warnings.push(
-        "target_bitrate_multiplier resolved to 0; no valid bitrate target is configured."
-      );
+      warnings.push("target_bitrate_multiplier resolved to 0; no valid bitrate target is configured.");
     }
     return {
       policy: new _ReencodePolicy(
         parseEnum(rawInputs.target_codec, Media.videoCodecs, "hevc"),
         targetBitrateMultiplier,
-        parseEnum(
-          rawInputs.target_resolution,
-          Media.videoResolutionTargets,
-          "none"
-        ),
+        parseEnum(rawInputs.target_resolution, Media.videoResolutionTargets, "none"),
         parseBoolean(rawInputs.try_use_gpu, true),
         parseEnum(rawInputs.container, [...Media.outputContainers, "original"], "mkv"),
         Math.max(0, parseFiniteNumber(rawInputs.bitrate_cutoff, 0)),
         parseBoolean(rawInputs.enable_10bit, false),
         {
           enabled: parseBoolean(rawInputs.bframes_enabled, false),
-          count: Math.max(0, Math.round(parseFiniteNumber(rawInputs.bframes_value, 5)))
+          count: Math.max(0, Math.round(parseFiniteNumber(rawInputs.bframes_value, 5))),
         },
         parseBoolean(rawInputs.force_conform, false),
-        parseExcludedGpuIds(rawInputs.exclude_gpus)
+        parseExcludedGpuIds(rawInputs.exclude_gpus),
       ),
-      warnings
+      warnings,
     };
   }
   encoderSelectionPolicy() {
     return {
       targetCodec: this.targetCodec,
       tryUseGpu: this.tryUseGpu,
-      excludedGpuIds: this.excludedGpuIds
+      excludedGpuIds: this.excludedGpuIds,
     };
   }
 };
@@ -840,11 +839,13 @@ var shouldDropForContainerConformance = (container, streamCodecName) => {
 };
 
 // src/plugins/reencode/streams.ts
-var normalize = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
+var normalize = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
 var isUnsupportedStream = (stream) => {
   const codecName = normalize(stream.codec_name);
   const codecType = normalize(stream.codec_type);
-  return codecName === "" || codecName === "none" || codecName === "unknown" || codecType === "" || codecType === "unknown";
+  return (
+    codecName === "" || codecName === "none" || codecName === "unknown" || codecType === "" || codecType === "unknown"
+  );
 };
 var isDisposableVideoStream = (stream) => {
   const codecName = normalize(stream.codec_name);
@@ -863,7 +864,7 @@ var ReencodeStreamAnalyzer = class {
       passthroughStreamIndexes: [],
       mappingChanged: false,
       resizeRequired: false,
-      decisions: []
+      decisions: [],
     };
     streams.forEach((stream, index) => {
       const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
@@ -876,7 +877,7 @@ var ReencodeStreamAnalyzer = class {
         result.decisions.push({
           kind: "drop-container-conformance",
           streamIndex: index,
-          codecName
+          codecName,
         });
         result.mappingChanged = true;
         return;
@@ -911,7 +912,11 @@ var ReencodeStreamAnalyzer = class {
     return result;
   }
   shouldDropForContainerConformance(stream) {
-    return this.forceConform && typeof stream.codec_name === "string" && shouldDropForContainerConformance(this.targetContainer, stream.codec_name);
+    return (
+      this.forceConform &&
+      typeof stream.codec_name === "string" &&
+      shouldDropForContainerConformance(this.targetContainer, stream.codec_name)
+    );
   }
 };
 var streamMapTokens = (streamIndexes) => streamIndexes.flatMap((streamIndex) => ["-map", `0:${streamIndex}`]);
@@ -965,55 +970,53 @@ var ReencodePlugin = class extends VideoTdarrPlugin {
       policy: {
         targetCodec: policy.targetCodec,
         tryUseGpu: policy.tryUseGpu,
-        excludedGpuIds: policy.excludedGpuIds
+        excludedGpuIds: policy.excludedGpuIds,
       },
-      host: context.host
+      host: context.host,
     });
     response.logAll(encoderSelection.logs);
     const encoder = encoderSelection.candidate;
     const streamResult = new ReencodeStreamAnalyzer(
       policy.targetResolution,
       policy.forceConform,
-      targetContainer
+      targetContainer,
     ).analyze(media.streams);
-    response.logAll(
-      streamResult.decisions.map((decision) => renderStreamDecision(decision, targetContainer))
-    );
+    response.logAll(streamResult.decisions.map((decision) => renderStreamDecision(decision, targetContainer)));
     if (streamResult.primaryVideoStreamIndex === -1) {
       response.log("No supported video stream found.").skip();
       return;
     }
-    const mapTokens = streamMapTokens([
-      streamResult.primaryVideoStreamIndex,
-      ...streamResult.passthroughStreamIndexes
-    ]);
+    const mapTokens = streamMapTokens([streamResult.primaryVideoStreamIndex, ...streamResult.passthroughStreamIndexes]);
     let extraArgs = FfmpegArguments.empty();
     if (policy.enable10Bit) {
-      extraArgs = extraArgs.concat(
-        FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile))
-      );
+      extraArgs = extraArgs.concat(FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile)));
     }
     if (bframeSupport.has(encoder.name) && policy.bFrames.enabled) {
       extraArgs = extraArgs.append("-bf", String(policy.bFrames.count));
     }
-    extraArgs = extraArgs.upsertVideoFilter(
-      getResolutionFilter(encoder.name, policy.targetResolution)
-    );
+    extraArgs = extraArgs.upsertVideoFilter(getResolutionFilter(encoder.name, policy.targetResolution));
     const rateControl = new RateControlPlanner().plan({
       encoderName: encoder.name,
-      bitrate: bitrateResult.budget
+      bitrate: bitrateResult.budget,
     });
     this.logTranscodePlan(context, encoder, rateControl, targetContainer, bitrateResult.budget);
-    if (streamResult.primaryVideoCodec === policy.targetCodec && context.rawFile.container === targetContainer && !streamResult.resizeRequired && !streamResult.mappingChanged) {
+    if (
+      streamResult.primaryVideoCodec === policy.targetCodec &&
+      context.rawFile.container === targetContainer &&
+      !streamResult.resizeRequired &&
+      !streamResult.mappingChanged
+    ) {
       response.log(`File is already ${policy.targetCodec} and in ${targetContainer}.`).skip();
       return;
     }
     if (streamResult.primaryVideoCodec === policy.targetCodec && !streamResult.resizeRequired) {
       response.log(
-        `File video is already ${policy.targetCodec} but stream mapping/container needs normalization. Remuxing.`
+        `File video is already ${policy.targetCodec} but stream mapping/container needs normalization. Remuxing.`,
       );
       response.transcode(
-        FfmpegArguments.of(["<io>", ...mapTokens, "-c", "copy"]).concat(extraArgs).render()
+        FfmpegArguments.of(["<io>", ...mapTokens, "-c", "copy"])
+          .concat(extraArgs)
+          .render(),
       );
       return;
     }
@@ -1024,8 +1027,8 @@ var ReencodePlugin = class extends VideoTdarrPlugin {
         mapTokens,
         extraArgs,
         targetContainer,
-        context
-      })
+        context,
+      }),
     );
     response.log(`File is not in ${policy.targetCodec}. Transcoding.`);
   }
@@ -1045,7 +1048,7 @@ var ReencodePlugin = class extends VideoTdarrPlugin {
     let prefixArgs = FfmpegArguments.empty();
     if (params.encoder.family === "nvenc") {
       prefixArgs = prefixArgs.concat(
-        FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile))
+        FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile)),
       );
     }
     prefixArgs = prefixArgs.append(...params.encoder.inputArgs);
@@ -1062,7 +1065,7 @@ var ReencodePlugin = class extends VideoTdarrPlugin {
       ...params.encoder.outputArgs,
       ...params.rateControlArgs,
       "-max_muxing_queue_size",
-      "9999"
+      "9999",
     ]).concat(params.extraArgs);
     return prefixArgs.concat(transcodeArgs).render();
   }
@@ -1070,8 +1073,9 @@ var ReencodePlugin = class extends VideoTdarrPlugin {
 var createPlugin = (options) => new ReencodePlugin(options).entrypoint();
 var plugin = createPlugin();
 // Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  createPlugin,
-  details,
-  plugin
-});
+0 &&
+  (module.exports = {
+    createPlugin,
+    details,
+    plugin,
+  });

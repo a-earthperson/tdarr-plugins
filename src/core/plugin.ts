@@ -33,7 +33,7 @@ const defaultChildProcess: Runtime.ChildProcessAdapter = {
 export abstract class TdarrPlugin<TPolicy, TOptions extends PluginRuntimeOptions = PluginRuntimeOptions> {
   protected constructor(
     private readonly detailsProvider: () => Tdarr.PluginDetails,
-    protected readonly options: TOptions = {} as TOptions
+    protected readonly options: TOptions = {} as TOptions,
   ) {}
 
   public details(): Tdarr.PluginDetails {

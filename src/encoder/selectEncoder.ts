@@ -10,7 +10,7 @@ export interface EncoderSelection {
 class EncoderProbe {
   public constructor(
     private readonly ffmpegPath: string,
-    private readonly childProcess: Runtime.ChildProcessAdapter
+    private readonly childProcess: Runtime.ChildProcessAdapter,
   ) {}
 
   public async supports(candidate: Encoder.Candidate): Promise<boolean> {
@@ -41,7 +41,7 @@ const candidate = (
   codec: Media.VideoCodec,
   family: Encoder.Candidate["family"],
   inputArgs: Encoder.Candidate["inputArgs"] = [],
-  probeFilterArgs: Encoder.Candidate["probeFilterArgs"] = []
+  probeFilterArgs: Encoder.Candidate["probeFilterArgs"] = [],
 ): Encoder.Candidate => ({
   name,
   codec,
@@ -52,9 +52,7 @@ const candidate = (
 });
 
 const softwareCandidate = (codec: Media.VideoCodec): Encoder.Candidate =>
-  codec === "hevc"
-    ? candidate("libx265", "hevc", "software")
-    : candidate("libx264", "h264", "software");
+  codec === "hevc" ? candidate("libx265", "hevc", "software") : candidate("libx264", "h264", "software");
 
 const workerCanUseGpu = (workerType?: string): boolean =>
   typeof workerType === "string" && workerType.toLowerCase().includes("gpu");
@@ -67,15 +65,8 @@ export class EncoderCatalog {
       "hevc_vaapi",
       "hevc",
       "vaapi",
-      [
-        "-hwaccel",
-        "vaapi",
-        "-hwaccel_device",
-        "/dev/dri/renderD128",
-        "-hwaccel_output_format",
-        "vaapi",
-      ],
-      ["-vf", "format=nv12,hwupload"]
+      ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"],
+      ["-vf", "format=nv12,hwupload"],
     ),
     candidate("hevc_rkmpp", "hevc", "rkmpp"),
     candidate("hevc_qsv", "hevc", "qsv"),
@@ -99,40 +90,37 @@ export class EncoderCatalog {
 export class EncoderSelector {
   public constructor(
     private readonly childProcess: Runtime.ChildProcessAdapter,
-    private readonly catalog = new EncoderCatalog()
+    private readonly catalog = new EncoderCatalog(),
   ) {}
 
-  public async select(params: {
-    policy: Encoder.SelectionPolicy;
-    host: Tdarr.HostInfo;
-  }): Promise<EncoderSelection> {
+  public async select(params: { policy: Encoder.SelectionPolicy; host: Tdarr.HostInfo }): Promise<EncoderSelection> {
     const { policy, host } = params;
     const ffmpegPath = host.ffmpegPath ?? "ffmpeg";
 
     if (workerCanUseGpu(host.workerType) && policy.tryUseGpu) {
       const candidates = this.catalog.hardwareFor(policy.targetCodec);
       const probe = new EncoderProbe(ffmpegPath, this.childProcess);
-    const enabled: Encoder.Candidate[] = [];
-    for (const gpuCandidate of candidates) {
-      const available = await probe.supports(gpuCandidate);
-      if (available) enabled.push(gpuCandidate);
-    }
+      const enabled: Encoder.Candidate[] = [];
+      for (const gpuCandidate of candidates) {
+        const available = await probe.supports(gpuCandidate);
+        if (available) enabled.push(gpuCandidate);
+      }
 
-    if (enabled.length > 0) {
-      let selected = enabled[0];
-      if (selected.family === "vaapi") {
-        const qsv = enabled.find((enabledCandidate) => enabledCandidate.family === "qsv");
-        if (qsv) selected = qsv;
+      if (enabled.length > 0) {
+        let selected = enabled[0];
+        if (selected.family === "vaapi") {
+          const qsv = enabled.find((enabledCandidate) => enabledCandidate.family === "qsv");
+          if (qsv) selected = qsv;
+        }
+        if (selected.family === "nvenc") {
+          return new NvencDeviceSelector(this.childProcess).select({
+            excludedGpuIds: policy.excludedGpuIds,
+            nvencCandidate: selected,
+          });
+        }
+        return { candidate: selected, logs: [] };
       }
-      if (selected.family === "nvenc") {
-        return new NvencDeviceSelector(this.childProcess).select({
-          excludedGpuIds: policy.excludedGpuIds,
-          nvencCandidate: selected,
-        });
-      }
-      return { candidate: selected, logs: [] };
     }
-  }
 
     return { candidate: this.catalog.softwareFor(policy.targetCodec), logs: [] };
   }

@@ -2,18 +2,13 @@ import { streamNeedsResize } from "../../ffmpeg/filters";
 import type { Ffmpeg, Media, Tdarr } from "../../tdarr/types";
 import { shouldDropForContainerConformance } from "./policy";
 
-const normalize = (value: unknown): string =>
-  typeof value === "string" ? value.trim().toLowerCase() : "";
+const normalize = (value: unknown): string => (typeof value === "string" ? value.trim().toLowerCase() : "");
 
 export const isUnsupportedStream = (stream: Tdarr.FileStream): boolean => {
   const codecName = normalize(stream.codec_name);
   const codecType = normalize(stream.codec_type);
   return (
-    codecName === "" ||
-    codecName === "none" ||
-    codecName === "unknown" ||
-    codecType === "" ||
-    codecType === "unknown"
+    codecName === "" || codecName === "none" || codecName === "unknown" || codecType === "" || codecType === "unknown"
   );
 };
 
@@ -49,7 +44,7 @@ export class ReencodeStreamAnalyzer {
   public constructor(
     private readonly targetResolution: Media.VideoResolutionTarget,
     private readonly forceConform: boolean,
-    private readonly targetContainer: Media.OutputContainer
+    private readonly targetContainer: Media.OutputContainer,
   ) {}
 
   public analyze(streams: readonly Tdarr.FileStream[]): StreamAnalysisResult {
@@ -80,11 +75,7 @@ export class ReencodeStreamAnalyzer {
         return;
       }
 
-      if (
-        this.forceConform &&
-        this.targetContainer === "mkv" &&
-        normalize(stream.codec_type) === "data"
-      ) {
+      if (this.forceConform && this.targetContainer === "mkv" && normalize(stream.codec_type) === "data") {
         result.decisions.push({ kind: "drop-data-conformance", streamIndex: index, codecName });
         result.mappingChanged = true;
         return;
@@ -132,11 +123,9 @@ export const analyzeStreams = (params: {
   forceConform: boolean;
   targetContainer: Media.OutputContainer;
 }): StreamAnalysisResult => {
-  return new ReencodeStreamAnalyzer(
-    params.targetResolution,
-    params.forceConform,
-    params.targetContainer
-  ).analyze(params.streams);
+  return new ReencodeStreamAnalyzer(params.targetResolution, params.forceConform, params.targetContainer).analyze(
+    params.streams,
+  );
 };
 
 export const streamMapTokens = (streamIndexes: readonly number[]): Ffmpeg.Argv =>

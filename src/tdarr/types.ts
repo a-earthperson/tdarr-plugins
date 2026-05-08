@@ -138,13 +138,13 @@ export namespace Tdarr {
     file: MediaMetadata,
     librarySettings: LibrarySettings,
     inputs: Record<string, unknown>,
-    otherArguments: HostInfo
+    otherArguments: HostInfo,
   ) => Promise<TranscodeResponse>;
 
   export interface RuntimeMethods {
     loadDefaultValues: (
       inputs: Record<string, unknown>,
-      detailsProvider: () => PluginDetails
+      detailsProvider: () => PluginDetails,
     ) => Record<string, unknown>;
     getNvdecHwaccelPreset: (file: MediaMetadata) => string;
     getNvenc10BitFormatArg: (file: MediaMetadata) => string;

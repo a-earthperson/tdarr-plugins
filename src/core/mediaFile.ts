@@ -20,18 +20,13 @@ export class MediaFile {
     if (preference !== "original") {
       return { container: preference, warnings: [] };
     }
-    const normalized =
-      typeof this.metadata.container === "string"
-        ? this.metadata.container.trim().toLowerCase()
-        : "";
+    const normalized = typeof this.metadata.container === "string" ? this.metadata.container.trim().toLowerCase() : "";
     if (MediaValues.outputContainers.includes(normalized as Media.OutputContainer)) {
       return { container: normalized as Media.OutputContainer, warnings: [] };
     }
     return {
       container: "mkv",
-      warnings: [
-        "Input requested original container, but source container was unavailable or unsupported; using mkv.",
-      ],
+      warnings: ["Input requested original container, but source container was unavailable or unsupported; using mkv."],
     };
   }
 
@@ -56,9 +51,7 @@ export class MediaFile {
 
   public bitrateBudget(durationSeconds: number, multiplier: number): Media.BitrateBudgetResult {
     const fileSizeMb =
-      typeof this.metadata.file_size === "number"
-        ? this.metadata.file_size
-        : Number(this.metadata.file_size);
+      typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
     if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
       return {
         kind: "invalid",

@@ -58,18 +58,15 @@ export class LoudnormReportParser {
   }
 }
 
-export const parseLoudnormValuesFromReport = (
-  report: string
-): TwoPassLoudness.LoudnormMeasuredValues[] => new LoudnormReportParser().parse(report);
+export const parseLoudnormValuesFromReport = (report: string): TwoPassLoudness.LoudnormMeasuredValues[] =>
+  new LoudnormReportParser().parse(report);
 
-const loudnormAnalysisExpression = (
-  policy: TwoPassLoudness.Policy
-): string =>
+const loudnormAnalysisExpression = (policy: TwoPassLoudness.Policy): string =>
   `loudnorm=I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:print_format=json`;
 
 const loudnormApplyExpression = (
   policy: TwoPassLoudness.Policy,
-  measured: TwoPassLoudness.LoudnormMeasuredValues
+  measured: TwoPassLoudness.LoudnormMeasuredValues,
 ): string =>
   `loudnorm=print_format=summary:linear=true:I=${policy.integratedLoudness}:LRA=${policy.loudnessRange}:TP=${policy.truePeak}:` +
   `measured_i=${measured.input_i}:measured_lra=${measured.input_lra}:measured_tp=${measured.input_tp}:` +
@@ -83,10 +80,7 @@ export class LoudnormCommandBuilder {
   }): Ffmpeg.Argv {
     const labels = params.audioStreams.map((_, index) => `ln${index}`);
     const filterComplex = params.audioStreams
-      .map(
-        (stream, index) =>
-          `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`
-      )
+      .map((stream, index) => `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`)
       .join(";");
 
     return [
@@ -115,7 +109,7 @@ export class LoudnormCommandBuilder {
     const filterComplex = params.audioStreams
       .map(
         (stream, index) =>
-          `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`
+          `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`,
       )
       .join(";");
     const appendedAudioCodecArgs = params.audioStreams.flatMap((stream, index) => {

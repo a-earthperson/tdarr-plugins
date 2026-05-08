@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  calculateBitrateBudget,
-  normalizeInputs,
-  resolveDurationSeconds,
-} from "../src/plugins/reencode/policy";
+import { calculateBitrateBudget, normalizeInputs, resolveDurationSeconds } from "../src/plugins/reencode/policy";
 
 describe("transcode policy", () => {
   test("normalizes Tdarr-shaped raw inputs into domain policy", () => {

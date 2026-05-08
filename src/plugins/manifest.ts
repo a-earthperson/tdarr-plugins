@@ -12,5 +12,5 @@ export const plugins = [
 ] as const;
 
 export const pluginBuildEntries = Object.fromEntries(
-  plugins.map((plugin) => [plugin.artifactName, plugin.entry])
+  plugins.map((plugin) => [plugin.artifactName, plugin.entry]),
 ) as Record<(typeof plugins)[number]["artifactName"], (typeof plugins)[number]["entry"]>;

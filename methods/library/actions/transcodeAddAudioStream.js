@@ -1,10 +1,5 @@
 /* eslint-disable */
-module.exports = function transcodeAddAudioStream(
-  file,
-  audioEncoder,
-  langTag,
-  channelCount
-) {
+module.exports = function transcodeAddAudioStream(file, audioEncoder, langTag, channelCount) {
   // response.preset = library.actions.transcodeAddAudioStream(file, 'aac', 'en', 1).preset
 
   //Function required responses
@@ -26,7 +21,7 @@ module.exports = function transcodeAddAudioStream(
 
     let extraArgs = "";
 
-    if (audioEncoder === 'truehd') {
+    if (audioEncoder === "truehd") {
       extraArgs = " -strict -2";
     }
 
@@ -59,10 +54,7 @@ module.exports = function transcodeAddAudioStream(
 
     var streamsWithLangTag = file.ffProbeData.streams.filter((stream) => {
       try {
-        if (
-          stream.codec_type == "audio" &&
-          stream.tags.language.toLowerCase().includes(langTag)
-        ) {
+        if (stream.codec_type == "audio" && stream.tags.language.toLowerCase().includes(langTag)) {
           return true;
         }
       } catch (err) {}
@@ -81,10 +73,7 @@ module.exports = function transcodeAddAudioStream(
     function attemptMakeStreamLang(langTag) {
       var streamsWithLangTag = file.ffProbeData.streams.filter((stream) => {
         try {
-          if (
-            stream.codec_type == "audio" &&
-            stream.tags.language.toLowerCase().includes(langTag)
-          ) {
+          if (stream.codec_type == "audio" && stream.tags.language.toLowerCase().includes(langTag)) {
             return true;
           }
         } catch (err) {}
@@ -108,9 +97,7 @@ module.exports = function transcodeAddAudioStream(
             if (
               stream.codec_type == "audio" &&
               stream.codec_name === audioCodec &&
-              stream.tags.language
-                .toLowerCase()
-                .includes(langTag.toLowerCase()) &&
+              stream.tags.language.toLowerCase().includes(langTag.toLowerCase()) &&
               stream.channels == channelCount
             ) {
               return true;
@@ -141,9 +128,7 @@ module.exports = function transcodeAddAudioStream(
             if (
               stream.codec_type == "audio" &&
               stream.codec_name === audioCodec &&
-              stream.tags.language
-                .toLowerCase()
-                .includes(langTag.toLowerCase()) &&
+              stream.tags.language.toLowerCase().includes(langTag.toLowerCase()) &&
               stream.channels == highestChannelCount.channels
             ) {
               return true;
@@ -170,9 +155,7 @@ module.exports = function transcodeAddAudioStream(
     }
 
     function attemptMakeStreamUnd(langTag) {
-      console.log(
-        "No tracks with specified lang tag exist. Checking undefined tracks."
-      );
+      console.log("No tracks with specified lang tag exist. Checking undefined tracks.");
 
       console.log(langTag);
 

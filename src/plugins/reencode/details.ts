@@ -6,8 +6,7 @@ export const details = (): Tdarr.PluginDetails => ({
   Name: "Transcode A Video File",
   Type: "Video",
   Operation: "Transcode",
-  Description:
-    "Transcode a video file using ffmpeg. GPU transcoding will be used if possible.",
+  Description: "Transcode a video file using ffmpeg. GPU transcoding will be used if possible.",
   Version: "3.5",
   Tags: "pre-processing,ffmpeg,video only,nvenc h265,configurable",
   Inputs: [
@@ -70,8 +69,7 @@ export const details = (): Tdarr.PluginDetails => ({
       inputUI: {
         type: "text",
       },
-      tooltip:
-        "Specify bitrate cutoff in kbps. Files with current bitrate lower than this are not transcoded.",
+      tooltip: "Specify bitrate cutoff in kbps. Files with current bitrate lower than this are not transcoded.",
     },
     {
       name: "enable_10bit",
@@ -91,8 +89,7 @@ export const details = (): Tdarr.PluginDetails => ({
         type: "dropdown",
         options: ["false", "true"],
       },
-      tooltip:
-        "Specify if b frames should be used. This can decrease file sizes but needs newer GPUs.",
+      tooltip: "Specify if b frames should be used. This can decrease file sizes but needs newer GPUs.",
     },
     {
       name: "bframes_value",
@@ -111,8 +108,7 @@ export const details = (): Tdarr.PluginDetails => ({
         type: "dropdown",
         options: ["false", "true"],
       },
-      tooltip:
-        "Conform to output container requirements by dropping incompatible streams.",
+      tooltip: "Conform to output container requirements by dropping incompatible streams.",
     },
     {
       name: "exclude_gpus",

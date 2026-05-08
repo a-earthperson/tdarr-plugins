@@ -3,16 +3,16 @@
 // AV1 NVDEC only exists on Ampere (RTX 30xx) and later, so forcing CUDA hwaccel
 // on older GPUs produces empty output instead of falling back to software decode.
 const NVDEC_SUPPORTED_CODECS = [
-  'h263',
-  'h264',
-  'hevc',
-  'mjpeg',
-  'mpeg1video',
-  'mpeg2video',
-  'mpeg4',
-  'vc1',
-  'vp8',
-  'vp9',
+  "h263",
+  "h264",
+  "hevc",
+  "mjpeg",
+  "mpeg1video",
+  "mpeg2video",
+  "mpeg4",
+  "vc1",
+  "vp8",
+  "vp9",
 ];
 
 // Picks the first non-attached-pic video stream's codec, falling back to
@@ -21,21 +21,19 @@ const NVDEC_SUPPORTED_CODECS = [
 // codecs on files where the attached picture is stream 0.
 const getPrimaryVideoCodec = (file) => {
   const streams = (file && file.ffProbeData && file.ffProbeData.streams) || [];
-  const videoStream = streams.find((s) => (
-    s
-    && s.codec_type === 'video'
-    && !(s.disposition && s.disposition.attached_pic === 1)
-  ));
+  const videoStream = streams.find(
+    (s) => s && s.codec_type === "video" && !(s.disposition && s.disposition.attached_pic === 1),
+  );
   if (videoStream && videoStream.codec_name) {
     return videoStream.codec_name;
   }
-  return (file && file.video_codec_name) || '';
+  return (file && file.video_codec_name) || "";
 };
 
 const getNvdecHwaccelPreset = (file, options) => {
   const codec = getPrimaryVideoCodec(file);
   if (!NVDEC_SUPPORTED_CODECS.includes(codec)) {
-    return '';
+    return "";
   }
   // softwareFrames: omit `-hwaccel_output_format cuda` so decoded frames land
   // in system memory. Use this for plugins whose filter chain or encoder
@@ -43,9 +41,9 @@ const getNvdecHwaccelPreset = (file, options) => {
   // `-pix_fmt p010le`). Slightly slower than full-GPU but compatible with
   // arbitrary downstream filters.
   if (options && options.softwareFrames === true) {
-    return '-hwaccel cuda';
+    return "-hwaccel cuda";
   }
-  return '-hwaccel cuda -hwaccel_output_format cuda';
+  return "-hwaccel cuda -hwaccel_output_format cuda";
 };
 
 // Returns the correct 10-bit output argument for the current decode path.
@@ -60,12 +58,12 @@ const getNvdecHwaccelPreset = (file, options) => {
 // stays consistent with the actual decode path being emitted.
 const getNvenc10BitFormatArg = (file, options) => {
   if (options && options.softwareFrames === true) {
-    return '-pix_fmt p010le ';
+    return "-pix_fmt p010le ";
   }
-  if (getNvdecHwaccelPreset(file) !== '') {
-    return '-vf scale_cuda=format=p010le ';
+  if (getNvdecHwaccelPreset(file) !== "") {
+    return "-vf scale_cuda=format=p010le ";
   }
-  return '-pix_fmt p010le ';
+  return "-pix_fmt p010le ";
 };
 
 module.exports = {

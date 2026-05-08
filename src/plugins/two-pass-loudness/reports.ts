@@ -13,12 +13,10 @@ type FetchLike = (
     method: "POST";
     headers: Record<string, string>;
     body: string;
-  }
+  },
 ) => Promise<FetchResponseLike>;
 
-const getServerUrl = (
-  policy: TwoPassLoudness.Policy
-): string => {
+const getServerUrl = (policy: TwoPassLoudness.Policy): string => {
   const serverIp = policy.serverIp ?? process.env.serverIp;
   const serverPort = policy.serverPort ?? process.env.serverPort;
   if (!serverIp || !serverPort) {
@@ -27,12 +25,7 @@ const getServerUrl = (
   return `http://${serverIp}:${serverPort}`;
 };
 
-const postJson = async (
-  fetchImpl: FetchLike,
-  url: string,
-  body: unknown,
-  apiKey?: string
-): Promise<unknown> => {
+const postJson = async (fetchImpl: FetchLike, url: string, body: unknown, apiKey?: string): Promise<unknown> => {
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
@@ -56,11 +49,7 @@ const expectStringArray = (value: unknown): string[] => {
 };
 
 const expectReportText = (value: unknown): string => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    typeof (value as { text?: unknown }).text !== "string"
-  ) {
+  if (typeof value !== "object" || value === null || typeof (value as { text?: unknown }).text !== "string") {
     throw new Error("Tdarr report API did not return report text.");
   }
   return (value as { text: string }).text;
@@ -71,11 +60,7 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
   private readonly serverUrl: string;
   private readonly apiKey?: string;
 
-  public constructor(params: {
-    policy: TwoPassLoudness.Policy;
-    host: Tdarr.HostInfo;
-    fetchImpl?: FetchLike;
-  }) {
+  public constructor(params: { policy: TwoPassLoudness.Policy; host: Tdarr.HostInfo; fetchImpl?: FetchLike }) {
     const fetchImpl = params.fetchImpl ?? globalThis.fetch;
     if (!fetchImpl) {
       throw new Error("Global fetch is unavailable; cannot read Tdarr reports.");
@@ -94,7 +79,7 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
           footprintId: file.footprintId,
         },
       },
-      this.apiKey
+      this.apiKey,
     );
     return expectStringArray(response).sort((left, right) => {
       const leftJob = parseJobName(left);
@@ -103,10 +88,7 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
     });
   }
 
-  public async readJobFile(
-    file: Tdarr.MediaMetadata,
-    jobFileId: string
-  ): Promise<string> {
+  public async readJobFile(file: Tdarr.MediaMetadata, jobFileId: string): Promise<string> {
     const response = await postJson(
       this.fetchImpl,
       `${this.serverUrl}/api/v2/read-job-file`,
@@ -117,7 +99,7 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
           jobFileId,
         },
       },
-      this.apiKey
+      this.apiKey,
     );
     return expectReportText(response);
   }
