@@ -4,10 +4,12 @@ import { FfmpegArguments } from "../../ffmpeg/args";
 import { getResolutionFilter } from "../../ffmpeg/filters";
 import { RateControlPlanner } from "../../ffmpeg/rateControl";
 import type { Encoder, Ffmpeg, Media, Runtime, Tdarr } from "../../tdarr/types";
-import { details } from "./details";
+import { PLUGIN_DETAILS } from "./details";
 import { normalizeInputs } from "./policy";
 import { ReencodeStreamAnalyzer, streamMapTokens, type StreamDecision } from "./streams";
 import type { Reencode } from "./types";
+
+const details: () => Tdarr.PluginDetails = () => PLUGIN_DETAILS;
 
 const bframeSupport: Set<Encoder.Name> = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
 
