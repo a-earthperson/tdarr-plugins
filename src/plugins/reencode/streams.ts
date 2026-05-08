@@ -1,6 +1,6 @@
-import { streamNeedsResize } from "../ffmpeg/filters";
-import { shouldDropForContainerConformance } from "../policy/transcodePolicy";
-import type { Domain, Ffmpeg, Tdarr } from "../tdarr/types";
+import { streamNeedsResize } from "../../ffmpeg/filters";
+import type { Ffmpeg, Media, Tdarr } from "../../tdarr/types";
+import { shouldDropForContainerConformance } from "./policy";
 
 const normalize = (value: unknown): string =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -47,9 +47,9 @@ export interface StreamAnalysisResult {
 
 export const analyzeStreams = (params: {
   streams: readonly Tdarr.FileStream[];
-  targetResolution: Domain.TargetResolution;
+  targetResolution: Media.VideoResolutionTarget;
   forceConform: boolean;
-  targetContainer: Domain.OutputContainer;
+  targetContainer: Media.OutputContainer;
 }): StreamAnalysisResult => {
   const result: StreamAnalysisResult = {
     primaryVideoStreamIndex: -1,

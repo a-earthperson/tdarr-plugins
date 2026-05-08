@@ -16,8 +16,8 @@ export const tokenizeArguments = (raw: string): Ffmpeg.Argv => {
 const quoteToken = (token: string): string => {
   if (token === "<io>") return token;
   if (token === "") return '""';
-  if (/\s/.test(token) || token.includes('"')) {
-    return `"${token.replace(/"/g, '\\"')}"`;
+  if (/[\s"';&|()<>`$\\]/.test(token)) {
+    return `"${token.replace(/(["`$\\])/g, "\\$1")}"`;
   }
   return token;
 };

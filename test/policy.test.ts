@@ -3,7 +3,7 @@ import {
   calculateBitrateBudget,
   normalizeInputs,
   resolveDurationSeconds,
-} from "../src/policy/transcodePolicy";
+} from "../src/plugins/reencode/policy";
 
 describe("transcode policy", () => {
   test("normalizes Tdarr-shaped raw inputs into domain policy", () => {

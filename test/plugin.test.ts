@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createPlugin } from "../src/index";
+import { createPlugin } from "../src/plugins/reencode";
 import type { Runtime, Tdarr } from "../src/tdarr/types";
 
 const runtime: Tdarr.RuntimeMethods = {

@@ -1,34 +1,13 @@
-export namespace Domain {
-  export const targetCodecs = ["hevc", "h264"] as const;
-  export type TargetCodec = (typeof targetCodecs)[number];
+export namespace Media {
+  export const videoCodecs = ["hevc", "h264"] as const;
+  export type VideoCodec = (typeof videoCodecs)[number];
 
-  export const targetResolutions = ["none", "720p", "480p"] as const;
-  export type TargetResolution = (typeof targetResolutions)[number];
+  export const videoResolutionTargets = ["none", "720p", "480p"] as const;
+  export type VideoResolutionTarget = (typeof videoResolutionTargets)[number];
 
   export const outputContainers = ["mkv", "mp4", "avi", "ts"] as const;
   export type OutputContainer = (typeof outputContainers)[number];
   export type ContainerPreference = OutputContainer | "original";
-
-  export interface UserPolicy {
-    targetCodec: TargetCodec;
-    targetBitrateMultiplier: number;
-    targetResolution: TargetResolution;
-    tryUseGpu: boolean;
-    container: ContainerPreference;
-    bitrateCutoff: number;
-    enable10Bit: boolean;
-    bFrames: {
-      enabled: boolean;
-      count: number;
-    };
-    forceConform: boolean;
-    excludedGpuIds: readonly number[];
-  }
-
-  export interface NormalizedInputResult {
-    policy: UserPolicy;
-    warnings: readonly string[];
-  }
 
   export interface DurationResult {
     kind: "ok" | "invalid";
@@ -113,6 +92,7 @@ export namespace Tdarr {
   }
 
   export interface MediaMetadata {
+    footprintId?: string;
     fileMedium?: string;
     container?: string;
     file_size?: number;
@@ -123,6 +103,7 @@ export namespace Tdarr {
     ffProbeData?: {
       format?: {
         duration?: string | number;
+        tags?: Record<string, string | undefined>;
       };
       streams: FileStream[];
     };
@@ -135,15 +116,20 @@ export namespace Tdarr {
   export interface HostInfo {
     workerType?: string;
     ffmpegPath?: string;
+    configVars?: {
+      config?: {
+        apiKey?: string;
+      };
+    };
     [key: string]: unknown;
   }
 
   export interface TranscodeResponse {
     processFile: boolean;
     preset: string;
-    handBrakeMode: false;
-    FFmpegMode: true;
-    reQueueAfter: boolean;
+    handBrakeMode: boolean;
+    FFmpegMode: boolean;
+    reQueueAfter?: boolean;
     infoLog: string;
     container?: string;
   }
@@ -163,6 +149,12 @@ export namespace Tdarr {
     getNvdecHwaccelPreset: (file: MediaMetadata) => string;
     getNvenc10BitFormatArg: (file: MediaMetadata) => string;
   }
+
+  export interface PluginModule {
+    details: () => PluginDetails;
+    plugin: PluginEntrypoint;
+    dependencies?: readonly string[];
+  }
 }
 
 export namespace Ffmpeg {
@@ -171,7 +163,7 @@ export namespace Ffmpeg {
 
   export interface RateControlRequest {
     encoderName: Encoder.Name;
-    bitrate: Domain.BitrateBudget;
+    bitrate: Media.BitrateBudget;
   }
 
   export interface RateControlPlan {
@@ -199,7 +191,7 @@ export namespace Encoder {
 
   export interface Candidate {
     name: Name;
-    codec: Domain.TargetCodec;
+    codec: Media.VideoCodec;
     family: HardwareFamily | "software";
     inputArgs: Ffmpeg.Argv;
     outputArgs: Ffmpeg.Argv;
@@ -207,7 +199,7 @@ export namespace Encoder {
   }
 
   export interface SelectionPolicy {
-    targetCodec: Domain.TargetCodec;
+    targetCodec: Media.VideoCodec;
     tryUseGpu: boolean;
     excludedGpuIds: readonly number[];
   }

@@ -1,18 +1,18 @@
 import { exec, execSync } from "node:child_process";
-import { selectEncoder } from "./encoder/selectEncoder";
-import { renderArguments, tokenizeArguments } from "./ffmpeg/args";
-import { getResolutionFilter, upsertVideoFilterTokens } from "./ffmpeg/filters";
-import { getEncoderRateControl } from "./ffmpeg/rateControl";
+import { selectEncoder } from "../../encoder/selectEncoder";
+import { renderArguments, tokenizeArguments } from "../../ffmpeg/args";
+import { getResolutionFilter, upsertVideoFilterTokens } from "../../ffmpeg/filters";
+import { getEncoderRateControl } from "../../ffmpeg/rateControl";
+import { createDefaultTdarrRuntime } from "../../runtime/tdarrMethods";
+import type { Encoder, Ffmpeg, Runtime, Tdarr } from "../../tdarr/types";
+import { details } from "./details";
 import {
   calculateBitrateBudget,
   normalizeInputs,
   resolveDurationSeconds,
   resolveTargetContainer,
-} from "./policy/transcodePolicy";
-import { createDefaultTdarrRuntime } from "./runtime/tdarrMethods";
-import { analyzeStreams, streamMapTokens, type StreamDecision } from "./streams/analyze";
-import { details } from "./tdarr/details";
-import type { Encoder, Ffmpeg, Runtime, Tdarr } from "./tdarr/types";
+} from "./policy";
+import { analyzeStreams, streamMapTokens, type StreamDecision } from "./streams";
 
 const bframeSupport = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
 

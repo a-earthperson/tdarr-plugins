@@ -1,4 +1,4 @@
-import type { Tdarr } from "./types";
+import type { Tdarr } from "../../tdarr/types";
 
 export const details = (): Tdarr.PluginDetails => ({
   id: "Tdarr_Plugin_00td_action_transcode",

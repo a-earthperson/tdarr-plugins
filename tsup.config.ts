@@ -1,9 +1,10 @@
 import { defineConfig } from "tsup";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { plugins, pluginBuildEntries } from "./src/plugins/manifest";
 
 export default defineConfig({
-  entry: {
-    reencode: "src/index.ts",
-  },
+  entry: pluginBuildEntries,
   format: ["cjs"],
   bundle: true,
   splitting: false,
@@ -16,5 +17,15 @@ export default defineConfig({
     return {
       js: ".js",
     };
+  },
+  async onSuccess() {
+    await Promise.all(
+      plugins.map(async (plugin) => {
+        await fs.copyFile(
+          path.join("dist", `${plugin.artifactName}.js`),
+          plugin.rootArtifact
+        );
+      })
+    );
   },
 });

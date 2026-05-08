@@ -1,11 +1,11 @@
-import type { Domain, Ffmpeg } from "../tdarr/types";
+import type { Ffmpeg, Media } from "../tdarr/types";
 
 interface ResolutionTarget {
   landscape: { width: number; height: number };
   portrait: { width: number; height: number };
 }
 
-const resolutionTargets: Record<Exclude<Domain.TargetResolution, "none">, ResolutionTarget> = {
+const resolutionTargets: Record<Exclude<Media.VideoResolutionTarget, "none">, ResolutionTarget> = {
   "720p": {
     landscape: { width: 1280, height: 720 },
     portrait: { width: 720, height: 1280 },
@@ -17,7 +17,7 @@ const resolutionTargets: Record<Exclude<Domain.TargetResolution, "none">, Resolu
 };
 
 const getResolutionTarget = (
-  targetResolution: Domain.TargetResolution,
+  targetResolution: Media.VideoResolutionTarget,
   width: number,
   height: number
 ): { width: number; height: number } | null => {
@@ -29,7 +29,7 @@ const getResolutionTarget = (
 
 export const streamNeedsResize = (
   stream: { width?: number; height?: number },
-  targetResolution: Domain.TargetResolution
+  targetResolution: Media.VideoResolutionTarget
 ): boolean => {
   if (
     targetResolution === "none" ||
@@ -45,7 +45,7 @@ export const streamNeedsResize = (
 
 export const getResolutionFilter = (
   encoder: string,
-  targetResolution: Domain.TargetResolution
+  targetResolution: Media.VideoResolutionTarget
 ): string => {
   if (targetResolution === "none") return "";
   const target = resolutionTargets[targetResolution];

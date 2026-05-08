@@ -1,5 +1,5 @@
 import { renderArguments } from "../ffmpeg/args";
-import type { Domain, Encoder, Runtime, Tdarr } from "../tdarr/types";
+import type { Encoder, Media, Runtime, Tdarr } from "../tdarr/types";
 import { getBestNvencDevice } from "./nvencDevice";
 
 export interface EncoderSelection {
@@ -34,7 +34,7 @@ const encoderProbe = async (params: {
 
 const candidate = (
   name: Encoder.Name,
-  codec: Domain.TargetCodec,
+  codec: Media.VideoCodec,
   family: Encoder.Candidate["family"],
   inputArgs: Encoder.Candidate["inputArgs"] = [],
   probeFilterArgs: Encoder.Candidate["probeFilterArgs"] = []
@@ -67,7 +67,7 @@ const gpuCandidates = (): Encoder.Candidate[] => [
   candidate("h264_videotoolbox", "h264", "videotoolbox"),
 ];
 
-const softwareCandidate = (codec: Domain.TargetCodec): Encoder.Candidate =>
+const softwareCandidate = (codec: Media.VideoCodec): Encoder.Candidate =>
   codec === "hevc"
     ? candidate("libx265", "hevc", "software")
     : candidate("libx264", "h264", "software");

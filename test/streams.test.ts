@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { analyzeStreams, streamMapTokens } from "../src/streams/analyze";
+import { analyzeStreams, streamMapTokens } from "../src/plugins/reencode/streams";
 
 describe("stream analysis", () => {
   test("drops unsupported and disposable streams", () => {
