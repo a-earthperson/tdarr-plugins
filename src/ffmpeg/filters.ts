@@ -1,11 +1,11 @@
-import type { TargetResolution } from "../tdarr/types";
+import type { Domain, Ffmpeg } from "../tdarr/types";
 
 interface ResolutionTarget {
   landscape: { width: number; height: number };
   portrait: { width: number; height: number };
 }
 
-const resolutionTargets: Record<Exclude<TargetResolution, "none">, ResolutionTarget> = {
+const resolutionTargets: Record<Exclude<Domain.TargetResolution, "none">, ResolutionTarget> = {
   "720p": {
     landscape: { width: 1280, height: 720 },
     portrait: { width: 720, height: 1280 },
@@ -17,7 +17,7 @@ const resolutionTargets: Record<Exclude<TargetResolution, "none">, ResolutionTar
 };
 
 const getResolutionTarget = (
-  targetResolution: TargetResolution,
+  targetResolution: Domain.TargetResolution,
   width: number,
   height: number
 ): { width: number; height: number } | null => {
@@ -29,7 +29,7 @@ const getResolutionTarget = (
 
 export const streamNeedsResize = (
   stream: { width?: number; height?: number },
-  targetResolution: TargetResolution
+  targetResolution: Domain.TargetResolution
 ): boolean => {
   if (
     targetResolution === "none" ||
@@ -45,7 +45,7 @@ export const streamNeedsResize = (
 
 export const getResolutionFilter = (
   encoder: string,
-  targetResolution: TargetResolution
+  targetResolution: Domain.TargetResolution
 ): string => {
   if (targetResolution === "none") return "";
   const target = resolutionTargets[targetResolution];
@@ -55,7 +55,10 @@ export const getResolutionFilter = (
   return `${filterName}=w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
 };
 
-export const upsertVideoFilterTokens = (tokens: string[], videoFilter: string): string[] => {
+export const upsertVideoFilterTokens = (
+  tokens: Ffmpeg.Argv,
+  videoFilter: string
+): Ffmpeg.Argv => {
   if (!videoFilter) return [...tokens];
   const next = [...tokens];
   const filterIndex = next.findIndex((token) => token === "-vf" || token === "-filter:v");

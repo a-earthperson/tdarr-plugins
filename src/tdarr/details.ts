@@ -1,6 +1,6 @@
-import type { PluginSpec } from "./types";
+import type { Tdarr } from "./types";
 
-export const details = (): PluginSpec => ({
+export const details = (): Tdarr.PluginDetails => ({
   id: "Tdarr_Plugin_00td_action_transcode",
   Stage: "Pre-processing",
   Name: "Transcode A Video File",

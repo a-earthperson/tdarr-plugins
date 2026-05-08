@@ -3,7 +3,6 @@ import { analyzeStreams, streamMapTokens } from "../src/streams/analyze";
 
 describe("stream analysis", () => {
   test("drops unsupported and disposable streams", () => {
-    const logs: string[] = [];
     const result = analyzeStreams({
       streams: [
         { codec_type: "video", codec_name: "mjpeg" },
@@ -14,12 +13,15 @@ describe("stream analysis", () => {
       targetResolution: "720p",
       forceConform: false,
       targetContainer: "mkv",
-      pushLog: (line) => logs.push(line),
     });
     expect(result.primaryVideoStreamIndex).toBe(1);
     expect(result.passthroughStreamIndexes).toEqual([2]);
     expect(result.mappingChanged).toBe(true);
-    expect(logs.join("\n")).toContain("Dropping stream 0:0");
+    expect(result.decisions).toContainEqual({
+      kind: "drop-disposable-video",
+      streamIndex: 0,
+      codecName: "mjpeg",
+    });
   });
 
   test("creates map token list", () => {

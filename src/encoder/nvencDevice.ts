@@ -1,17 +1,17 @@
-import type {
-  ChildProcessAdapter,
-  EncoderCandidate,
-  TdarrPluginInput,
-  TdarrResponse,
-} from "../tdarr/types";
+import type { Encoder, Runtime } from "../tdarr/types";
+
+export interface NvencDeviceSelection {
+  candidate: Encoder.Candidate;
+  logs: readonly string[];
+}
 
 export const getBestNvencDevice = (params: {
-  response: TdarrResponse;
-  inputs: TdarrPluginInput;
-  nvencDevice: EncoderCandidate;
-  childProcess: ChildProcessAdapter;
-}): EncoderCandidate => {
-  const { response, inputs, nvencDevice, childProcess } = params;
+  excludedGpuIds: readonly number[];
+  nvencCandidate: Encoder.Candidate;
+  childProcess: Runtime.ChildProcessAdapter;
+}): NvencDeviceSelection => {
+  const logs: string[] = [];
+  const { excludedGpuIds, nvencCandidate, childProcess } = params;
   let selectedGpu = -1;
   let selectedUtilization = Number.MAX_SAFE_INTEGER;
   let gpuNames: string[] = [];
@@ -24,35 +24,39 @@ export const getBestNvencDevice = (params: {
       .split(/\r?\n/)
       .filter((line) => line && !line.includes("nvidia-smi"));
   } catch {
-    response.infoLog += "Error in reading nvidia-smi output.\n";
+    logs.push("Error in reading nvidia-smi output.");
   }
 
   gpuNames.forEach((gpuName, gpuIndex) => {
-    if (inputs.exclude_gpu_ids.includes(gpuIndex)) {
-      response.infoLog += `GPU ${gpuIndex}: ${gpuName} is in exclusion list.\n`;
+    if (excludedGpuIds.includes(gpuIndex)) {
+      logs.push(`GPU ${gpuIndex}: ${gpuName} is in exclusion list.`);
       return;
     }
     try {
       const command = `nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i ${gpuIndex}`;
       const utilization = Number.parseInt(childProcess.execSync(command).toString(), 10);
       if (!Number.isNaN(utilization)) {
-        response.infoLog += `GPU ${gpuIndex}: Utilization ${utilization}%\n`;
+        logs.push(`GPU ${gpuIndex}: Utilization ${utilization}%`);
         if (utilization < selectedUtilization) {
           selectedUtilization = utilization;
           selectedGpu = gpuIndex;
         }
       }
     } catch (error) {
-      response.infoLog += `Error in reading GPU ${gpuIndex} utilization.\n${String(error)}\n`;
+      logs.push(`Error in reading GPU ${gpuIndex} utilization. ${String(error)}`);
     }
   });
 
   if (selectedGpu >= 0) {
     return {
-      ...nvencDevice,
-      inputArgs: `-hwaccel_device ${selectedGpu}`,
-      outputArgs: `-gpu ${selectedGpu}`,
+      candidate: {
+        ...nvencCandidate,
+        inputArgs: ["-hwaccel_device", String(selectedGpu)],
+        outputArgs: ["-gpu", String(selectedGpu)],
+      },
+      logs,
     };
   }
-  return nvencDevice;
+
+  return { candidate: nvencCandidate, logs };
 };

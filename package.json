@@ -5,7 +5,7 @@
   "main": "reencode.js",
   "private": true,
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/copy-root-artifact.cjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "vitest run"

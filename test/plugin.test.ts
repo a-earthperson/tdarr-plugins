@@ -1,12 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { createPlugin } from "../src/index";
-import type {
-  ChildProcessAdapter,
-  TdarrFile,
-  TdarrRuntimeMethods,
-} from "../src/tdarr/types";
+import type { Runtime, Tdarr } from "../src/tdarr/types";
 
-const runtime: TdarrRuntimeMethods = {
+const runtime: Tdarr.RuntimeMethods = {
   loadDefaultValues: (inputs, detailsProvider) => {
     const next = { ...inputs };
     const detailSpec = detailsProvider().Inputs;
@@ -21,12 +17,12 @@ const runtime: TdarrRuntimeMethods = {
   getNvenc10BitFormatArg: () => "-vf scale_cuda=format=p010le ",
 };
 
-const childProcess: ChildProcessAdapter = {
+const childProcess: Runtime.ChildProcessAdapter = {
   exec: (_command, callback) => callback(new Error("no gpu"), "", ""),
   execSync: () => Buffer.from(""),
 };
 
-const baseFile = (): TdarrFile => ({
+const baseFile = (): Tdarr.MediaMetadata => ({
   fileMedium: "video",
   container: "mkv",
   file_size: 2000,
@@ -89,7 +85,7 @@ describe("plugin decision flow", () => {
 
   test("skips when already compliant", async () => {
     const plugin = createPlugin({ runtime, childProcess });
-    const file: TdarrFile = {
+    const file: Tdarr.MediaMetadata = {
       fileMedium: "video",
       container: "mkv",
       file_size: 2000,

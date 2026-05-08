@@ -1,15 +1,5 @@
-import type {
-  TargetCodec,
-  TargetContainer,
-  TargetResolution,
-  TdarrFile,
-  TdarrPluginInput,
-  TdarrResponse,
-} from "../tdarr/types";
-
-const TARGET_CODECS: TargetCodec[] = ["hevc", "h264"];
-const TARGET_CONTAINERS: TargetContainer[] = ["mkv", "mp4", "avi", "ts", "original"];
-const TARGET_RESOLUTIONS: TargetResolution[] = ["none", "720p", "480p"];
+import type { Domain, Tdarr } from "../tdarr/types";
+import { Domain as DomainValues } from "../tdarr/types";
 
 const isFiniteNonNegative = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -25,9 +15,13 @@ const parseNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const parseEnum = <T extends string>(value: unknown, allowed: T[], fallback: T): T => {
-  const normalized = typeof value === "string" ? (value.trim().toLowerCase() as T) : fallback;
-  return allowed.includes(normalized) ? normalized : fallback;
+const parseEnum = <T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T
+): T => {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return allowed.includes(normalized as T) ? (normalized as T) : fallback;
 };
 
 export const parseExcludedGpuIds = (value: unknown): number[] => {
@@ -41,43 +35,69 @@ export const parseExcludedGpuIds = (value: unknown): number[] => {
 };
 
 export const normalizeInputs = (
-  rawInputs: Record<string, unknown>,
-  response: TdarrResponse
-): TdarrPluginInput => {
-  const target_codec = parseEnum(rawInputs.target_codec, TARGET_CODECS, "hevc");
-  const container = parseEnum(rawInputs.container, TARGET_CONTAINERS, "mkv");
-  const target_resolution = parseEnum(rawInputs.target_resolution, TARGET_RESOLUTIONS, "none");
+  rawInputs: Record<string, unknown>
+): Domain.NormalizedInputResult => {
+  const warnings: string[] = [];
+  const targetBitrateMultiplier = Math.max(
+    0,
+    parseNumber(rawInputs.target_bitrate_multiplier, 0.5)
+  );
 
-  const normalized: TdarrPluginInput = {
-    target_codec,
-    container,
-    target_resolution,
-    target_bitrate_multiplier: Math.max(0, parseNumber(rawInputs.target_bitrate_multiplier, 0.5)),
-    try_use_gpu: parseBoolean(rawInputs.try_use_gpu, true),
-    bitrate_cutoff: Math.max(0, parseNumber(rawInputs.bitrate_cutoff, 0)),
-    enable_10bit: parseBoolean(rawInputs.enable_10bit, false),
-    bframes_enabled: parseBoolean(rawInputs.bframes_enabled, false),
-    bframes_value: Math.max(0, Math.round(parseNumber(rawInputs.bframes_value, 5))),
-    force_conform: parseBoolean(rawInputs.force_conform, false),
-    exclude_gpus: typeof rawInputs.exclude_gpus === "string" ? rawInputs.exclude_gpus : "",
-    exclude_gpu_ids: parseExcludedGpuIds(rawInputs.exclude_gpus),
-  };
-
-  if (normalized.target_bitrate_multiplier === 0) {
-    response.infoLog += "target_bitrate_multiplier resolved to 0. No bitrate reduction target is configured.\n";
+  if (targetBitrateMultiplier === 0) {
+    warnings.push(
+      "target_bitrate_multiplier resolved to 0; no valid bitrate target is configured."
+    );
   }
-  return normalized;
+
+  return {
+    policy: {
+      targetCodec: parseEnum(rawInputs.target_codec, DomainValues.targetCodecs, "hevc"),
+      container: parseEnum(rawInputs.container, [...DomainValues.outputContainers, "original"], "mkv"),
+      targetResolution: parseEnum(
+        rawInputs.target_resolution,
+        DomainValues.targetResolutions,
+        "none"
+      ),
+      targetBitrateMultiplier,
+      tryUseGpu: parseBoolean(rawInputs.try_use_gpu, true),
+      bitrateCutoff: Math.max(0, parseNumber(rawInputs.bitrate_cutoff, 0)),
+      enable10Bit: parseBoolean(rawInputs.enable_10bit, false),
+      bFrames: {
+        enabled: parseBoolean(rawInputs.bframes_enabled, false),
+        count: Math.max(0, Math.round(parseNumber(rawInputs.bframes_value, 5))),
+      },
+      forceConform: parseBoolean(rawInputs.force_conform, false),
+      excludedGpuIds: parseExcludedGpuIds(rawInputs.exclude_gpus),
+    },
+    warnings,
+  };
 };
 
-export const resolveTargetContainer = (inputs: TdarrPluginInput, file: TdarrFile): string =>
-  inputs.container === "original" ? (file.container ?? "mkv") : inputs.container;
-
-export interface DurationResult {
-  duration: number;
-  valid: boolean;
+export interface TargetContainerResult {
+  container: Domain.OutputContainer;
+  warnings: readonly string[];
 }
 
-export const resolveDurationSeconds = (file: TdarrFile, response: TdarrResponse): DurationResult => {
+export const resolveTargetContainer = (
+  policy: Domain.UserPolicy,
+  file: Tdarr.MediaMetadata
+): TargetContainerResult => {
+  if (policy.container !== "original") {
+    return { container: policy.container, warnings: [] };
+  }
+  const normalized = typeof file.container === "string" ? file.container.trim().toLowerCase() : "";
+  if (DomainValues.outputContainers.includes(normalized as Domain.OutputContainer)) {
+    return { container: normalized as Domain.OutputContainer, warnings: [] };
+  }
+  return {
+    container: "mkv",
+    warnings: ["Input requested original container, but source container was unavailable or unsupported; using mkv."],
+  };
+};
+
+export const resolveDurationSeconds = (
+  file: Tdarr.MediaMetadata
+): Domain.DurationResult => {
   const candidates: unknown[] = [
     file.ffProbeData?.format?.duration,
     file.meta?.Duration,
@@ -86,70 +106,60 @@ export const resolveDurationSeconds = (file: TdarrFile, response: TdarrResponse)
   for (const candidate of candidates) {
     const parsed = typeof candidate === "number" ? candidate : Number(candidate);
     if (isFiniteNonNegative(parsed) && parsed > 0) {
-      return { duration: parsed, valid: true };
+      return { kind: "ok", seconds: parsed };
     }
   }
-  response.infoLog += "Unable to determine media duration. Skipping transcode.\n";
-  return { duration: 0, valid: false };
-};
-
-export interface BitrateResult {
-  currentBitrate: number;
-  targetBitrate: number;
-  minimumBitrate: number;
-  maximumBitrate: number;
-  valid: boolean;
-}
-
-export const calculateBitrates = (
-  file: TdarrFile,
-  durationSeconds: number,
-  multiplier: number,
-  response: TdarrResponse
-): BitrateResult => {
-  const fileSizeMb = typeof file.file_size === "number" ? file.file_size : Number(file.file_size);
-  if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
-    response.infoLog += "Unable to calculate bitrate from file_size. Skipping transcode.\n";
-    return {
-      currentBitrate: 0,
-      targetBitrate: 0,
-      minimumBitrate: 0,
-      maximumBitrate: 0,
-      valid: false,
-    };
-  }
-  const currentBitrate = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
-  if (!Number.isFinite(currentBitrate) || currentBitrate <= 0) {
-    response.infoLog += "Computed current bitrate is invalid. Skipping transcode.\n";
-    return {
-      currentBitrate: 0,
-      targetBitrate: 0,
-      minimumBitrate: 0,
-      maximumBitrate: 0,
-      valid: false,
-    };
-  }
-  const targetBitrate = currentBitrate * multiplier;
-  if (!Number.isFinite(targetBitrate) || targetBitrate <= 0) {
-    response.infoLog += "Computed target bitrate is invalid. Skipping transcode.\n";
-    return {
-      currentBitrate: 0,
-      targetBitrate: 0,
-      minimumBitrate: 0,
-      maximumBitrate: 0,
-      valid: false,
-    };
-  }
   return {
-    currentBitrate,
-    targetBitrate,
-    minimumBitrate: targetBitrate * 0.7,
-    maximumBitrate: targetBitrate * 1.3,
-    valid: true,
+    kind: "invalid",
+    seconds: 0,
+    reason: "Unable to determine media duration.",
   };
 };
 
-export const getContainerConformanceDrops = (container: string, streamCodecName: string): boolean => {
+export const calculateBitrateBudget = (
+  file: Tdarr.MediaMetadata,
+  durationSeconds: number,
+  multiplier: number
+): Domain.BitrateBudgetResult => {
+  const fileSizeMb = typeof file.file_size === "number" ? file.file_size : Number(file.file_size);
+  if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
+    return {
+      kind: "invalid",
+      reason: "Unable to calculate bitrate from file_size.",
+    };
+  }
+
+  const current = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
+  if (!Number.isFinite(current) || current <= 0) {
+    return {
+      kind: "invalid",
+      reason: "Computed current bitrate is invalid.",
+    };
+  }
+
+  const target = current * multiplier;
+  if (!Number.isFinite(target) || target <= 0) {
+    return {
+      kind: "invalid",
+      reason: "Computed target bitrate is invalid.",
+    };
+  }
+
+  return {
+    kind: "ok",
+    budget: {
+      current,
+      target,
+      minimum: target * 0.7,
+      maximum: target * 1.3,
+    },
+  };
+};
+
+export const shouldDropForContainerConformance = (
+  container: Domain.OutputContainer,
+  streamCodecName: string
+): boolean => {
   const codec = streamCodecName.trim().toLowerCase();
   if (container === "mkv") {
     return codec === "mov_text" || codec === "eia_608" || codec === "timed_id3";

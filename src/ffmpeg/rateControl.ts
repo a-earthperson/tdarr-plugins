@@ -1,34 +1,33 @@
-export interface EncoderRateControlInput {
-  encoder: string;
-  currentBitrate: number;
-  targetBitrate: number;
-  maximumBitrate: number;
-}
-
-export interface EncoderRateControlResult {
-  tokens: string[];
-  description: string;
-}
+import type { Encoder, Ffmpeg } from "../tdarr/types";
 
 const normalizeBitrate = (bitrate: number): string =>
   Math.max(1, Math.round(bitrate)).toString();
 
-const bitrateTokens = (input: EncoderRateControlInput): string[] => [
+const bitrateArgs = (request: Ffmpeg.RateControlRequest): Ffmpeg.Argv => [
   "-b:v",
-  normalizeBitrate(input.targetBitrate),
+  normalizeBitrate(request.bitrate.target),
   "-maxrate",
-  normalizeBitrate(input.maximumBitrate),
+  normalizeBitrate(request.bitrate.maximum),
   "-bufsize",
-  normalizeBitrate(input.currentBitrate),
+  normalizeBitrate(request.bitrate.current),
 ];
 
+const isNvenc = (encoderName: Encoder.Name): boolean =>
+  encoderName === "hevc_nvenc" || encoderName === "h264_nvenc";
+
+const isQsv = (encoderName: Encoder.Name): boolean =>
+  encoderName === "hevc_qsv" || encoderName === "h264_qsv";
+
+const isSoftware = (encoderName: Encoder.Name): boolean =>
+  encoderName === "libx265" || encoderName === "libx264";
+
 export const getEncoderRateControl = (
-  input: EncoderRateControlInput
-): EncoderRateControlResult => {
-  const base = bitrateTokens(input);
-  if (input.encoder === "hevc_nvenc" || input.encoder === "h264_nvenc") {
+  request: Ffmpeg.RateControlRequest
+): Ffmpeg.RateControlPlan => {
+  const base = bitrateArgs(request);
+  if (isNvenc(request.encoderName)) {
     return {
-      tokens: [
+      args: [
         "-rc:v",
         "vbr",
         "-cq:v",
@@ -42,20 +41,20 @@ export const getEncoderRateControl = (
       description: "NVENC VBR HQ with CQ 19",
     };
   }
-  if (input.encoder === "hevc_qsv" || input.encoder === "h264_qsv") {
+  if (isQsv(request.encoderName)) {
     return {
-      tokens: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
+      args: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
       description: "QSV bitrate mode with extbrc lookahead",
     };
   }
-  if (input.encoder === "libx265" || input.encoder === "libx264") {
+  if (isSoftware(request.encoderName)) {
     return {
-      tokens: base,
+      args: base,
       description: "software encoder bitrate mode",
     };
   }
   return {
-    tokens: base,
+    args: base,
     description: "generic bitrate mode",
   };
 };

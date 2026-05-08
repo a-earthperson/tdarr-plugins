@@ -1,21 +1,74 @@
-export type TargetCodec = "hevc" | "h264";
-export type TargetResolution = "none" | "720p" | "480p";
-export type TargetContainer = "mkv" | "mp4" | "avi" | "ts" | "original";
+export namespace Domain {
+  export const targetCodecs = ["hevc", "h264"] as const;
+  export type TargetCodec = (typeof targetCodecs)[number];
+
+  export const targetResolutions = ["none", "720p", "480p"] as const;
+  export type TargetResolution = (typeof targetResolutions)[number];
+
+  export const outputContainers = ["mkv", "mp4", "avi", "ts"] as const;
+  export type OutputContainer = (typeof outputContainers)[number];
+  export type ContainerPreference = OutputContainer | "original";
+
+  export interface UserPolicy {
+    targetCodec: TargetCodec;
+    targetBitrateMultiplier: number;
+    targetResolution: TargetResolution;
+    tryUseGpu: boolean;
+    container: ContainerPreference;
+    bitrateCutoff: number;
+    enable10Bit: boolean;
+    bFrames: {
+      enabled: boolean;
+      count: number;
+    };
+    forceConform: boolean;
+    excludedGpuIds: readonly number[];
+  }
+
+  export interface NormalizedInputResult {
+    policy: UserPolicy;
+    warnings: readonly string[];
+  }
+
+  export interface DurationResult {
+    kind: "ok" | "invalid";
+    seconds: number;
+    reason?: string;
+  }
+
+  export interface BitrateBudget {
+    current: number;
+    target: number;
+    minimum: number;
+    maximum: number;
+  }
+
+  export interface BitrateBudgetResult {
+    kind: "ok" | "invalid";
+    budget?: BitrateBudget;
+    reason?: string;
+  }
+
+  export interface ProcessingContext {
+    targetContainer: OutputContainer;
+    durationSeconds: number;
+    bitrate: BitrateBudget;
+  }
+}
 
 export namespace Tdarr {
-
   export interface FormInputSpec {
     name: string;
     type: "string" | "number" | "boolean";
     defaultValue: string | number | boolean;
     inputUI?: {
       type: "text" | "dropdown";
-      options?: string[];
+      options?: readonly string[];
     };
     tooltip: string;
   }
 
-  export const TagOptions = [
+  export const tagOptions = [
     "h265",
     "hevc",
     "h264",
@@ -30,22 +83,22 @@ export namespace Tdarr {
     "sonarr",
     "pre-processing",
     "post-processing",
-    "configurable"
+    "configurable",
   ] as const;
 
-  export type Tag = (typeof TagOptions)[number];
+  export type Tag = (typeof tagOptions)[number];
   export type CommaSeparatedTags = Tag | `${Tag},${string}` | `${Tag}, ${string}`;
 
   export interface PluginDetails {
     id: string;
     Stage: "Pre-processing" | "Post-processing";
     Name: string;
-    Type: "Video" | string;
+    Type: "Video";
     Operation: "Transcode" | "Filter";
     Description: string;
     Version: string;
     Tags: CommaSeparatedTags;
-    Inputs: FormInputSpec[];
+    Inputs: readonly FormInputSpec[];
   }
 
   export interface FileStream {
@@ -75,55 +128,92 @@ export namespace Tdarr {
     };
   }
 
+  export interface LibrarySettings {
+    [key: string]: unknown;
+  }
+
   export interface HostInfo {
     workerType?: string;
     ffmpegPath?: string;
+    [key: string]: unknown;
   }
 
-  export interface TdarrPluginInput {
-    target_codec: TargetCodec;
-    target_bitrate_multiplier: number;
-    target_resolution: TargetResolution;
-    try_use_gpu: boolean;
-    container: TargetContainer;
-    bitrate_cutoff: number;
-    enable_10bit: boolean;
-    bframes_enabled: boolean;
-    bframes_value: number;
-    force_conform: boolean;
-    exclude_gpus: string;
-    exclude_gpu_ids: number[];
-  }
-
-  export interface TdarrResponse {
+  export interface TranscodeResponse {
     processFile: boolean;
     preset: string;
-    handBrakeMode: boolean;
-    FFmpegMode: boolean;
+    handBrakeMode: false;
+    FFmpegMode: true;
     reQueueAfter: boolean;
     infoLog: string;
     container?: string;
   }
 
-  export interface PluginResponse<PostProcessing> {
-    file: MediaMetadata;
-    removeFromDB?: boolean;
-    updateDB?: boolean;
+  export type PluginEntrypoint = (
+    file: MediaMetadata,
+    librarySettings: LibrarySettings,
+    inputs: Record<string, unknown>,
+    otherArguments: HostInfo
+  ) => Promise<TranscodeResponse>;
+
+  export interface RuntimeMethods {
+    loadDefaultValues: (
+      inputs: Record<string, unknown>,
+      detailsProvider: () => PluginDetails
+    ) => Record<string, unknown>;
+    getNvdecHwaccelPreset: (file: MediaMetadata) => string;
+    getNvenc10BitFormatArg: (file: MediaMetadata) => string;
+  }
+}
+
+export namespace Ffmpeg {
+  export type Argv = string[];
+  export type RenderedArgs = string;
+
+  export interface RateControlRequest {
+    encoderName: Encoder.Name;
+    bitrate: Domain.BitrateBudget;
   }
 
-  export interface PluginResponse<Filter> {
-    processFile: true,
-    infoLog: '',
+  export interface RateControlPlan {
+    args: Argv;
+    description: string;
+  }
+}
+
+export namespace Encoder {
+  export type HardwareFamily = "nvenc" | "qsv" | "amf" | "vaapi" | "rkmpp" | "videotoolbox";
+  export type SoftwareName = "libx265" | "libx264";
+  export type HardwareName =
+    | "hevc_nvenc"
+    | "hevc_amf"
+    | "hevc_vaapi"
+    | "hevc_rkmpp"
+    | "hevc_qsv"
+    | "hevc_videotoolbox"
+    | "h264_nvenc"
+    | "h264_rkmpp"
+    | "h264_amf"
+    | "h264_qsv"
+    | "h264_videotoolbox";
+  export type Name = SoftwareName | HardwareName;
+
+  export interface Candidate {
+    name: Name;
+    codec: Domain.TargetCodec;
+    family: HardwareFamily | "software";
+    inputArgs: Ffmpeg.Argv;
+    outputArgs: Ffmpeg.Argv;
+    probeFilterArgs: Ffmpeg.Argv;
   }
 
-  export interface EncoderCandidate {
-    encoder: string;
-    inputArgs?: string;
-    outputArgs?: string;
-    filter?: string;
-    enabled?: boolean;
+  export interface SelectionPolicy {
+    targetCodec: Domain.TargetCodec;
+    tryUseGpu: boolean;
+    excludedGpuIds: readonly number[];
   }
+}
 
+export namespace Runtime {
   export interface ExecCallback {
     (error: Error | null, stdout: string, stderr: string): void;
   }
@@ -133,24 +223,8 @@ export namespace Tdarr {
     execSync: (command: string) => Buffer;
   }
 
-  export interface TdarrRuntimeMethods {
-    loadDefaultValues: (
-        inputs: Record<string, unknown>,
-        detailsProvider: () => PluginDetails
-    ) => Record<string, unknown>;
-    getNvdecHwaccelPreset: (file: MediaMetadata) => string;
-    getNvenc10BitFormatArg: (file: MediaMetadata) => string;
-  }
-
-  export interface LibrarySettings {}
-
-  export interface PluginArgs {
-    source: MediaMetadata;
-    settings: LibrarySettings;
-
-  }
-  export interface PluginSpec {
-    details: PluginDetails,
-    plugin: Promise<>
+  export interface Dependencies {
+    runtime: Tdarr.RuntimeMethods;
+    childProcess: ChildProcessAdapter;
   }
 }

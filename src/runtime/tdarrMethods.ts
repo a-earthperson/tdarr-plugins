@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { PluginSpec, TdarrRuntimeMethods } from "../tdarr/types";
+import type { Tdarr } from "../tdarr/types";
 
 const resolveFromCandidates = <T>(relativeCandidates: string[]): T => {
   const loadErrors: string[] = [];
@@ -22,14 +22,14 @@ const runtimeCandidates = (modulePath: string): string[] => [
   path.join(__dirname, "..", "..", "..", modulePath),
 ];
 
-export const createDefaultTdarrRuntime = (): TdarrRuntimeMethods => {
+export const createDefaultTdarrRuntime = (): Tdarr.RuntimeMethods => {
   try {
     const libFactory = resolveFromCandidates<
-      () => { loadDefaultValues: TdarrRuntimeMethods["loadDefaultValues"] }
+      () => { loadDefaultValues: Tdarr.RuntimeMethods["loadDefaultValues"] }
     >(runtimeCandidates("methods/lib"));
     const nvdecPreset = resolveFromCandidates<{
-      getNvdecHwaccelPreset: TdarrRuntimeMethods["getNvdecHwaccelPreset"];
-      getNvenc10BitFormatArg: TdarrRuntimeMethods["getNvenc10BitFormatArg"];
+      getNvdecHwaccelPreset: Tdarr.RuntimeMethods["getNvdecHwaccelPreset"];
+      getNvenc10BitFormatArg: Tdarr.RuntimeMethods["getNvenc10BitFormatArg"];
     }>(runtimeCandidates("methods/nvdecPreset"));
     const library = libFactory();
     return {
@@ -38,9 +38,9 @@ export const createDefaultTdarrRuntime = (): TdarrRuntimeMethods => {
       getNvenc10BitFormatArg: nvdecPreset.getNvenc10BitFormatArg,
     };
   } catch {
-    const fallbackLoadDefaultValues: TdarrRuntimeMethods["loadDefaultValues"] = (
+    const fallbackLoadDefaultValues: Tdarr.RuntimeMethods["loadDefaultValues"] = (
       inputs: Record<string, unknown>,
-      detailsProvider: () => PluginSpec
+      detailsProvider: () => Tdarr.PluginDetails
     ) => {
       const next = { ...(inputs ?? {}) };
       const inputSpecs = detailsProvider().Inputs ?? [];

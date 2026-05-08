@@ -1,11 +1,11 @@
 import { streamNeedsResize } from "../ffmpeg/filters";
-import { getContainerConformanceDrops } from "../policy/transcodePolicy";
-import type { TargetResolution, TdarrFileStream } from "../tdarr/types";
+import { shouldDropForContainerConformance } from "../policy/transcodePolicy";
+import type { Domain, Ffmpeg, Tdarr } from "../tdarr/types";
 
 const normalize = (value: unknown): string =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 
-export const isUnsupportedStream = (stream: TdarrFileStream): boolean => {
+export const isUnsupportedStream = (stream: Tdarr.FileStream): boolean => {
   const codecName = normalize(stream.codec_name);
   const codecType = normalize(stream.codec_type);
   return (
@@ -17,10 +17,24 @@ export const isUnsupportedStream = (stream: TdarrFileStream): boolean => {
   );
 };
 
-export const isDisposableVideoStream = (stream: TdarrFileStream): boolean => {
+export const isDisposableVideoStream = (stream: Tdarr.FileStream): boolean => {
   const codecName = normalize(stream.codec_name);
   return codecName === "mjpeg" || codecName === "png";
 };
+
+export type StreamDecisionKind =
+  | "drop-unsupported"
+  | "drop-container-conformance"
+  | "drop-data-conformance"
+  | "drop-disposable-video"
+  | "promote-primary-video"
+  | "drop-secondary-video";
+
+export interface StreamDecision {
+  kind: StreamDecisionKind;
+  streamIndex: number;
+  codecName: string;
+}
 
 export interface StreamAnalysisResult {
   primaryVideoStreamIndex: number;
@@ -28,14 +42,14 @@ export interface StreamAnalysisResult {
   passthroughStreamIndexes: number[];
   mappingChanged: boolean;
   resizeRequired: boolean;
+  decisions: StreamDecision[];
 }
 
 export const analyzeStreams = (params: {
-  streams: TdarrFileStream[];
-  targetResolution: TargetResolution;
+  streams: readonly Tdarr.FileStream[];
+  targetResolution: Domain.TargetResolution;
   forceConform: boolean;
-  targetContainer: string;
-  pushLog: (line: string) => void;
+  targetContainer: Domain.OutputContainer;
 }): StreamAnalysisResult => {
   const result: StreamAnalysisResult = {
     primaryVideoStreamIndex: -1,
@@ -43,12 +57,13 @@ export const analyzeStreams = (params: {
     passthroughStreamIndexes: [],
     mappingChanged: false,
     resizeRequired: false,
+    decisions: [],
   };
 
   params.streams.forEach((stream, index) => {
+    const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
     if (isUnsupportedStream(stream)) {
-      const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
-      params.pushLog(`Dropping stream 0:${index} because codec "${codecName}" is unsupported.`);
+      result.decisions.push({ kind: "drop-unsupported", streamIndex: index, codecName });
       result.mappingChanged = true;
       return;
     }
@@ -56,27 +71,30 @@ export const analyzeStreams = (params: {
     if (
       params.forceConform &&
       typeof stream.codec_name === "string" &&
-      getContainerConformanceDrops(params.targetContainer, stream.codec_name)
+      shouldDropForContainerConformance(params.targetContainer, stream.codec_name)
     ) {
-      params.pushLog(
-        `Dropping stream 0:${index} because codec ${stream.codec_name} is not container-conformant for ${params.targetContainer}.`
-      );
+      result.decisions.push({
+        kind: "drop-container-conformance",
+        streamIndex: index,
+        codecName,
+      });
       result.mappingChanged = true;
       return;
     }
+
     if (
       params.forceConform &&
       params.targetContainer === "mkv" &&
       normalize(stream.codec_type) === "data"
     ) {
-      params.pushLog(`Dropping stream 0:${index} because data streams are dropped for mkv conformance.`);
+      result.decisions.push({ kind: "drop-data-conformance", streamIndex: index, codecName });
       result.mappingChanged = true;
       return;
     }
 
     if (normalize(stream.codec_type) === "video") {
       if (isDisposableVideoStream(stream)) {
-        params.pushLog(`Dropping stream 0:${index} because embedded image streams are not preserved.`);
+        result.decisions.push({ kind: "drop-disposable-video", streamIndex: index, codecName });
         result.mappingChanged = true;
         return;
       }
@@ -85,12 +103,12 @@ export const analyzeStreams = (params: {
         result.primaryVideoCodec = normalize(stream.codec_name);
         result.resizeRequired = streamNeedsResize(stream, params.targetResolution);
         if (index !== 0) {
-          params.pushLog(`Promoting video stream 0:${index} to the first output stream.`);
+          result.decisions.push({ kind: "promote-primary-video", streamIndex: index, codecName });
           result.mappingChanged = true;
         }
         return;
       }
-      params.pushLog(`Dropping stream 0:${index} because only one video stream is preserved.`);
+      result.decisions.push({ kind: "drop-secondary-video", streamIndex: index, codecName });
       result.mappingChanged = true;
       return;
     }
@@ -101,5 +119,5 @@ export const analyzeStreams = (params: {
   return result;
 };
 
-export const streamMapTokens = (streamIndexes: number[]): string[] =>
+export const streamMapTokens = (streamIndexes: readonly number[]): Ffmpeg.Argv =>
   streamIndexes.flatMap((streamIndex) => ["-map", `0:${streamIndex}`]);
