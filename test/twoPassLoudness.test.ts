@@ -7,9 +7,10 @@ import {
   renderPreset,
 } from "../src/plugins/two-pass-loudness/loudnorm";
 import { normalizeInputs } from "../src/plugins/two-pass-loudness/policy";
-import type { Tdarr } from "../src/tdarr/types";
+import type { Ffmpeg, Tdarr } from "../src/tdarr/types";
+import type { TwoPassLoudness } from "../src/plugins/two-pass-loudness/types";
 
-const policy = normalizeInputs({
+const policy: TwoPassLoudness.Policy = normalizeInputs({
   i: "-23",
   lra: "7",
   tp: "-2",
@@ -37,7 +38,7 @@ describe("two-pass loudness plugin helpers", () => {
   });
 
   test("parses multiple loudnorm JSON payloads from a Tdarr report", () => {
-    const report = `
+    const report: string = `
 [Parsed_loudnorm_0 @ abc]
 {
   "input_i" : "-18.00",
@@ -55,20 +56,20 @@ describe("two-pass loudness plugin helpers", () => {
   "target_offset" : "-3.00"
 }`;
 
-    const parsed = parseLoudnormValuesFromReport(report);
+    const parsed: TwoPassLoudness.LoudnormMeasuredValues[] = parseLoudnormValuesFromReport(report);
     expect(parsed).toHaveLength(2);
     expect(parsed[1].input_i).toBe("-20.00");
   });
 
   test("first pass analyzes every audio stream", () => {
-    const args = buildFirstPassArgs({
+    const args: Ffmpeg.Argv = buildFirstPassArgs({
       audioStreams: [
         { streamIndex: 1, audioIndex: 0, codecName: "ac3" },
         { streamIndex: 3, audioIndex: 1, codecName: "aac" },
       ],
       policy,
     });
-    const preset = renderPreset(args);
+    const preset: string = renderPreset(args);
 
     expect(preset).toContain("[0:1]loudnorm=");
     expect(preset).toContain("[0:3]loudnorm=");
@@ -76,7 +77,7 @@ describe("two-pass loudness plugin helpers", () => {
   });
 
   test("second pass preserves originals and appends normalized audio streams", () => {
-    const args = buildSecondPassArgs({
+    const args: Ffmpeg.Argv = buildSecondPassArgs({
       audioStreams: [
         { streamIndex: 1, audioIndex: 0, codecName: "ac3" },
         { streamIndex: 3, audioIndex: 1, codecName: "aac" },
@@ -99,7 +100,7 @@ describe("two-pass loudness plugin helpers", () => {
       ],
       policy,
     });
-    const preset = renderPreset(args);
+    const preset: string = renderPreset(args);
 
     expect(preset).toContain("-map 0");
     expect(preset).toContain("-map [ln0]");

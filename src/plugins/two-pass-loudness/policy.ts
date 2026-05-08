@@ -1,13 +1,13 @@
 import { parseEnum, parseFiniteNumber } from "../../common/parse";
 import type { TwoPassLoudness } from "./types";
 
-const outputCodecs = ["aac", "ac3"] as const;
+const outputCodecs: readonly ["aac", "ac3"] = ["aac", "ac3"] as const;
 
-const normalizeOptionalString = (value: unknown): string | undefined => {
+function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
+  const trimmed: string = value.trim();
   return trimmed === "" ? undefined : trimmed;
-};
+}
 
 export class TwoPassLoudnessPolicy implements TwoPassLoudness.Policy {
   public constructor(
@@ -36,6 +36,6 @@ export class TwoPassLoudnessPolicy implements TwoPassLoudness.Policy {
   }
 }
 
-export const normalizeInputs = (rawInputs: Record<string, unknown>): TwoPassLoudness.NormalizedInputResult => {
+export function normalizeInputs(rawInputs: Record<string, unknown>): TwoPassLoudness.NormalizedInputResult {
   return TwoPassLoudnessPolicy.fromInputs(rawInputs);
-};
+}

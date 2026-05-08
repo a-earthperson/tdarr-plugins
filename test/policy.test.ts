@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { calculateBitrateBudget, normalizeInputs, resolveDurationSeconds } from "../src/plugins/reencode/policy";
+import type { Media } from "../src/tdarr/types";
 
 describe("transcode policy", () => {
   test("normalizes Tdarr-shaped raw inputs into domain policy", () => {
-    const result = normalizeInputs({
+    const result: ReturnType<typeof normalizeInputs> = normalizeInputs({
       target_codec: "HEVC",
       target_bitrate_multiplier: "0",
       target_resolution: "720p",
@@ -24,7 +25,7 @@ describe("transcode policy", () => {
   });
 
   test("returns invalid bitrate result instead of emitting NaN arguments", () => {
-    const duration = resolveDurationSeconds({
+    const duration: Media.DurationResult = resolveDurationSeconds({
       ffProbeData: {
         format: { duration: "0" },
         streams: [],
@@ -32,7 +33,7 @@ describe("transcode policy", () => {
     });
     expect(duration.kind).toBe("invalid");
 
-    const bitrate = calculateBitrateBudget({ file_size: 100 }, 100, 0);
+    const bitrate: Media.BitrateBudgetResult = calculateBitrateBudget({ file_size: 100 }, 100, 0);
     expect(bitrate.kind).toBe("invalid");
     expect(bitrate.reason).toContain("target bitrate");
   });

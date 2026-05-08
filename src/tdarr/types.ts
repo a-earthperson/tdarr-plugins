@@ -1,11 +1,11 @@
 export namespace Media {
-  export const videoCodecs = ["hevc", "h264"] as const;
+  export const videoCodecs: readonly ["hevc", "h264"] = ["hevc", "h264"] as const;
   export type VideoCodec = (typeof videoCodecs)[number];
 
-  export const videoResolutionTargets = ["none", "720p", "480p"] as const;
+  export const videoResolutionTargets: readonly ["none", "720p", "480p"] = ["none", "720p", "480p"] as const;
   export type VideoResolutionTarget = (typeof videoResolutionTargets)[number];
 
-  export const outputContainers = ["mkv", "mp4", "avi", "ts"] as const;
+  export const outputContainers: readonly ["mkv", "mp4", "avi", "ts"] = ["mkv", "mp4", "avi", "ts"] as const;
   export type OutputContainer = (typeof outputContainers)[number];
   export type ContainerPreference = OutputContainer | "original";
 
@@ -47,7 +47,23 @@ export namespace Tdarr {
     tooltip: string;
   }
 
-  export const tagOptions = [
+  export const tagOptions: readonly [
+    "h265",
+    "hevc",
+    "h264",
+    "nvenc h265",
+    "nvenc h264",
+    "video only",
+    "audio only",
+    "subtitle only",
+    "handbrake",
+    "ffmpeg",
+    "radarr",
+    "sonarr",
+    "pre-processing",
+    "post-processing",
+    "configurable",
+  ] = [
     "h265",
     "hevc",
     "h264",
@@ -109,9 +125,7 @@ export namespace Tdarr {
     };
   }
 
-  export interface LibrarySettings {
-    [key: string]: unknown;
-  }
+  export type LibrarySettings = Record<string, unknown>;
 
   export interface HostInfo {
     workerType?: string;
@@ -206,9 +220,7 @@ export namespace Encoder {
 }
 
 export namespace Runtime {
-  export interface ExecCallback {
-    (error: Error | null, stdout: string, stderr: string): void;
-  }
+  export type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
   export interface ChildProcessAdapter {
     exec: (command: string, callback: ExecCallback) => void;

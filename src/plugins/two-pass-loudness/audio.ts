@@ -1,7 +1,9 @@
 import type { Tdarr } from "../../tdarr/types";
 import type { TwoPassLoudness } from "./types";
 
-const normalize = (value: unknown): string => (typeof value === "string" ? value.trim().toLowerCase() : "");
+function normalize(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
 
 export class AudioStreamCollection {
   public constructor(public readonly streams: readonly TwoPassLoudness.AudioStream[]) {}
@@ -21,8 +23,8 @@ export class AudioStreamCollection {
 
 export class AudioStreamDetector {
   public detect(file: Tdarr.MediaMetadata): AudioStreamCollection {
-    let audioIndex = 0;
-    const streams = file.ffProbeData?.streams ?? [];
+    let audioIndex: number = 0;
+    const streams: readonly Tdarr.FileStream[] = file.ffProbeData?.streams ?? [];
     return new AudioStreamCollection(
       streams.flatMap((stream, streamIndex) => {
         if (normalize(stream.codec_type) !== "audio") return [];
@@ -38,5 +40,6 @@ export class AudioStreamDetector {
   }
 }
 
-export const detectAudioStreams = (file: Tdarr.MediaMetadata): TwoPassLoudness.AudioStream[] =>
-  new AudioStreamDetector().detect(file).toArray();
+export function detectAudioStreams(file: Tdarr.MediaMetadata): TwoPassLoudness.AudioStream[] {
+  return new AudioStreamDetector().detect(file).toArray();
+}

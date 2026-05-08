@@ -4,8 +4,8 @@ import type { Runtime, Tdarr } from "../src/tdarr/types";
 
 const runtime: Tdarr.RuntimeMethods = {
   loadDefaultValues: (inputs, detailsProvider) => {
-    const next = { ...inputs };
-    const detailSpec = detailsProvider().Inputs;
+    const next: Record<string, unknown> = { ...inputs };
+    const detailSpec: readonly Tdarr.FormInputSpec[] = detailsProvider().Inputs;
     detailSpec.forEach((spec) => {
       if (next[spec.name] === undefined || next[spec.name] === "") {
         next[spec.name] = spec.defaultValue;
@@ -18,30 +18,34 @@ const runtime: Tdarr.RuntimeMethods = {
 };
 
 const childProcess: Runtime.ChildProcessAdapter = {
-  exec: (_command, callback) => callback(new Error("no gpu"), "", ""),
+  exec: (_command, callback) => {
+    callback(new Error("no gpu"), "", "");
+  },
   execSync: () => Buffer.from(""),
 };
 
-const baseFile = (): Tdarr.MediaMetadata => ({
-  fileMedium: "video",
-  container: "mkv",
-  file_size: 2000,
-  ffProbeData: {
-    format: {
-      duration: "1200",
+function baseFile(): Tdarr.MediaMetadata {
+  return {
+    fileMedium: "video",
+    container: "mkv",
+    file_size: 2000,
+    ffProbeData: {
+      format: {
+        duration: "1200",
+      },
+      streams: [
+        { codec_type: "audio", codec_name: "ac3" },
+        { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 },
+        { codec_type: "subtitle", codec_name: "srt" },
+      ],
     },
-    streams: [
-      { codec_type: "audio", codec_name: "ac3" },
-      { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 },
-      { codec_type: "subtitle", codec_name: "srt" },
-    ],
-  },
-});
+  };
+}
 
 describe("plugin decision flow", () => {
   test("transcodes when source codec differs", async () => {
-    const plugin = createPlugin({ runtime, childProcess });
-    const response = await plugin(
+    const plugin: Tdarr.PluginEntrypoint = createPlugin({ runtime, childProcess });
+    const response: Tdarr.TranscodeResponse = await plugin(
       baseFile(),
       {},
       {
@@ -61,10 +65,11 @@ describe("plugin decision flow", () => {
   });
 
   test("remuxes when codec already matches but mapping changes", async () => {
-    const plugin = createPlugin({ runtime, childProcess });
-    const file = baseFile();
-    file.ffProbeData!.streams[1].codec_name = "hevc";
-    const response = await plugin(
+    const plugin: Tdarr.PluginEntrypoint = createPlugin({ runtime, childProcess });
+    const file: Tdarr.MediaMetadata = baseFile();
+    if (!file.ffProbeData) throw new Error("Expected fixture ffProbeData.");
+    file.ffProbeData.streams[1].codec_name = "hevc";
+    const response: Tdarr.TranscodeResponse = await plugin(
       file,
       {},
       {
@@ -84,7 +89,7 @@ describe("plugin decision flow", () => {
   });
 
   test("skips when already compliant", async () => {
-    const plugin = createPlugin({ runtime, childProcess });
+    const plugin: Tdarr.PluginEntrypoint = createPlugin({ runtime, childProcess });
     const file: Tdarr.MediaMetadata = {
       fileMedium: "video",
       container: "mkv",
@@ -97,7 +102,7 @@ describe("plugin decision flow", () => {
         ],
       },
     };
-    const response = await plugin(
+    const response: Tdarr.TranscodeResponse = await plugin(
       file,
       {},
       {

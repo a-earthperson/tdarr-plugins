@@ -6,15 +6,15 @@ import type { Tdarr } from "../src/tdarr/types";
 
 describe("core domain abstractions", () => {
   test("MediaFile resolves original container through the supported-container invariant", () => {
-    const media = new MediaFile({ container: "weird" });
-    const result = media.resolveContainer("original");
+    const media: MediaFile = new MediaFile({ container: "weird" });
+    const result: ReturnType<MediaFile["resolveContainer"]> = media.resolveContainer("original");
 
     expect(result.container).toBe("mkv");
     expect(result.warnings[0]).toContain("unsupported");
   });
 
   test("MediaFile creates bitrate budgets only from valid file invariants", () => {
-    const media = new MediaFile({ file_size: 100 });
+    const media: MediaFile = new MediaFile({ file_size: 100 });
 
     expect(media.bitrateBudget(100, 0).kind).toBe("invalid");
     expect(media.bitrateBudget(100, 0.5).budget).toMatchObject({
@@ -24,7 +24,7 @@ describe("core domain abstractions", () => {
   });
 
   test("TranscodeResponseBuilder centralizes Tdarr response mutation", () => {
-    const response = new TranscodeResponseBuilder()
+    const response: Tdarr.TranscodeResponse = new TranscodeResponseBuilder()
       .setContainer("mkv")
       .log("hello")
       .transcode("<io> -c copy")
@@ -41,8 +41,8 @@ describe("core domain abstractions", () => {
   });
 
   test("FfmpegArguments behaves as an immutable command value object", () => {
-    const base = FfmpegArguments.of(["<io>", "-vf", "format=yuv420p"]);
-    const next = base.upsertVideoFilter("scale=1280:720");
+    const base: FfmpegArguments = FfmpegArguments.of(["<io>", "-vf", "format=yuv420p"]);
+    const next: FfmpegArguments = base.upsertVideoFilter("scale=1280:720");
 
     expect(base.render()).toBe("<io> -vf format=yuv420p");
     expect(next.render()).toBe("<io> -vf format=yuv420p,scale=1280:720");

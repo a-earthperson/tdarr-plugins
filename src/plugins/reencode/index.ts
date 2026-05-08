@@ -9,24 +9,24 @@ import { normalizeInputs } from "./policy";
 import { ReencodeStreamAnalyzer, streamMapTokens, type StreamDecision } from "./streams";
 import type { Reencode } from "./types";
 
-const bframeSupport = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
+const bframeSupport: Set<Encoder.Name> = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
 
-const renderStreamDecision = (decision: StreamDecision, targetContainer: string): string => {
+function renderStreamDecision(decision: StreamDecision, targetContainer: string): string {
   switch (decision.kind) {
     case "drop-unsupported":
-      return `Dropping stream 0:${decision.streamIndex} because codec "${decision.codecName}" is unsupported.`;
+      return `Dropping stream 0:${String(decision.streamIndex)} because codec "${decision.codecName}" is unsupported.`;
     case "drop-container-conformance":
-      return `Dropping stream 0:${decision.streamIndex} because codec ${decision.codecName} is not container-conformant for ${targetContainer}.`;
+      return `Dropping stream 0:${String(decision.streamIndex)} because codec ${decision.codecName} is not container-conformant for ${targetContainer}.`;
     case "drop-data-conformance":
-      return `Dropping stream 0:${decision.streamIndex} because data streams are dropped for mkv conformance.`;
+      return `Dropping stream 0:${String(decision.streamIndex)} because data streams are dropped for mkv conformance.`;
     case "drop-disposable-video":
-      return `Dropping stream 0:${decision.streamIndex} because embedded image streams are not preserved.`;
+      return `Dropping stream 0:${String(decision.streamIndex)} because embedded image streams are not preserved.`;
     case "promote-primary-video":
-      return `Promoting video stream 0:${decision.streamIndex} to the first output stream.`;
+      return `Promoting video stream 0:${String(decision.streamIndex)} to the first output stream.`;
     case "drop-secondary-video":
-      return `Dropping stream 0:${decision.streamIndex} because only one video stream is preserved.`;
+      return `Dropping stream 0:${String(decision.streamIndex)} because only one video stream is preserved.`;
   }
-};
+}
 
 class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.Dependencies>> {
   public constructor(options?: Partial<Runtime.Dependencies>) {
@@ -39,28 +39,34 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
 
   protected async executeVideo(context: PluginExecutionContext<Reencode.Policy>): Promise<void> {
     const { media, policy, response } = context;
-    const targetContainerResult = media.resolveContainer(policy.container);
+    const targetContainerResult: { container: Media.OutputContainer; warnings: readonly string[] } =
+      media.resolveContainer(policy.container);
     response.logAll(targetContainerResult.warnings);
-    const targetContainer = targetContainerResult.container;
+    const targetContainer: Media.OutputContainer = targetContainerResult.container;
     response.setContainer(targetContainer);
 
-    const duration = media.duration();
+    const duration: Media.DurationResult = media.duration();
     if (duration.kind === "invalid") {
-      response.log(`${duration.reason} Skipping transcode.`).skip();
+      response.log(`${duration.reason ?? "Unable to determine media duration."} Skipping transcode.`).skip();
       return;
     }
 
-    const bitrateResult = media.bitrateBudget(duration.seconds, policy.targetBitrateMultiplier);
+    const bitrateResult: Media.BitrateBudgetResult = media.bitrateBudget(
+      duration.seconds,
+      policy.targetBitrateMultiplier,
+    );
     if (bitrateResult.kind === "invalid" || !bitrateResult.budget) {
-      response.log(`${bitrateResult.reason} Skipping transcode.`).skip();
+      response.log(`${bitrateResult.reason ?? "Unable to calculate bitrate."} Skipping transcode.`).skip();
       return;
     }
     if (bitrateResult.budget.current <= policy.bitrateCutoff) {
-      response.log(`Current bitrate is below cutoff ${policy.bitrateCutoff}.`).skip();
+      response.log(`Current bitrate is below cutoff ${String(policy.bitrateCutoff)}.`).skip();
       return;
     }
 
-    const encoderSelection = await new EncoderSelector(context.childProcess).select({
+    const encoderSelection: { candidate: Encoder.Candidate; logs: readonly string[] } = await new EncoderSelector(
+      context.childProcess,
+    ).select({
       policy: {
         targetCodec: policy.targetCodec,
         tryUseGpu: policy.tryUseGpu,
@@ -69,9 +75,9 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
       host: context.host,
     });
     response.logAll(encoderSelection.logs);
-    const encoder = encoderSelection.candidate;
+    const encoder: Encoder.Candidate = encoderSelection.candidate;
 
-    const streamResult = new ReencodeStreamAnalyzer(
+    const streamResult: ReturnType<ReencodeStreamAnalyzer["analyze"]> = new ReencodeStreamAnalyzer(
       policy.targetResolution,
       policy.forceConform,
       targetContainer,
@@ -83,8 +89,11 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
       return;
     }
 
-    const mapTokens = streamMapTokens([streamResult.primaryVideoStreamIndex, ...streamResult.passthroughStreamIndexes]);
-    let extraArgs = FfmpegArguments.empty();
+    const mapTokens: Ffmpeg.Argv = streamMapTokens([
+      streamResult.primaryVideoStreamIndex,
+      ...streamResult.passthroughStreamIndexes,
+    ]);
+    let extraArgs: FfmpegArguments = FfmpegArguments.empty();
     if (policy.enable10Bit) {
       extraArgs = extraArgs.concat(FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile)));
     }
@@ -93,7 +102,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     }
     extraArgs = extraArgs.upsertVideoFilter(getResolutionFilter(encoder.name, policy.targetResolution));
 
-    const rateControl = new RateControlPlanner().plan({
+    const rateControl: Ffmpeg.RateControlPlan = new RateControlPlanner().plan({
       encoderName: encoder.name,
       bitrate: bitrateResult.budget,
     });
@@ -147,11 +156,11 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     response.log(`Encoder rate control = ${rateControl.description}.`);
     response.log(`Container for output selected as ${targetContainer}.`);
     response.log(`Resolution target selected as ${policy.targetResolution}.`);
-    response.log(`Current bitrate = ${bitrate.current}`);
+    response.log(`Current bitrate = ${String(bitrate.current)}`);
     response.log("Bitrate settings:");
-    response.log(`Target = ${bitrate.target}`);
-    response.log(`Minimum = ${bitrate.minimum}`);
-    response.log(`Maximum = ${bitrate.maximum}`);
+    response.log(`Target = ${String(bitrate.target)}`);
+    response.log(`Minimum = ${String(bitrate.minimum)}`);
+    response.log(`Maximum = ${String(bitrate.maximum)}`);
   }
 
   private buildTranscodePreset(params: {
@@ -162,7 +171,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
     targetContainer: string;
     context: PluginExecutionContext<Reencode.Policy>;
   }): string {
-    let prefixArgs = FfmpegArguments.empty();
+    let prefixArgs: FfmpegArguments = FfmpegArguments.empty();
     if (params.encoder.family === "nvenc") {
       prefixArgs = prefixArgs.concat(
         FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile)),
@@ -173,7 +182,7 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
       prefixArgs = prefixArgs.append("-fflags", "+genpts");
     }
 
-    const transcodeArgs = FfmpegArguments.of([
+    const transcodeArgs: FfmpegArguments = FfmpegArguments.of([
       "<io>",
       ...params.mapTokens,
       "-c",
@@ -190,8 +199,9 @@ class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.D
   }
 }
 
-export const createPlugin = (options?: Partial<Runtime.Dependencies>): Tdarr.PluginEntrypoint =>
-  new ReencodePlugin(options).entrypoint();
+export function createPlugin(options?: Partial<Runtime.Dependencies>): Tdarr.PluginEntrypoint {
+  return new ReencodePlugin(options).entrypoint();
+}
 
 export { details };
-export const plugin = createPlugin();
+export const plugin: Tdarr.PluginEntrypoint = createPlugin();

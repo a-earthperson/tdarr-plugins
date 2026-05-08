@@ -16,44 +16,44 @@ type FetchLike = (
   },
 ) => Promise<FetchResponseLike>;
 
-const getServerUrl = (policy: TwoPassLoudness.Policy): string => {
-  const serverIp = policy.serverIp ?? process.env.serverIp;
-  const serverPort = policy.serverPort ?? process.env.serverPort;
+function getServerUrl(policy: TwoPassLoudness.Policy): string {
+  const serverIp: string | undefined = policy.serverIp ?? process.env.serverIp;
+  const serverPort: string | undefined = policy.serverPort ?? process.env.serverPort;
   if (!serverIp || !serverPort) {
     throw new Error("Tdarr serverIp/serverPort are required to read loudnorm first-pass reports.");
   }
   return `http://${serverIp}:${serverPort}`;
-};
+}
 
-const postJson = async (fetchImpl: FetchLike, url: string, body: unknown, apiKey?: string): Promise<unknown> => {
+async function postJson(fetchImpl: FetchLike, url: string, body: unknown, apiKey?: string): Promise<unknown> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
   if (apiKey) headers["x-api-key"] = apiKey;
-  const response = await fetchImpl(url, {
+  const response: FetchResponseLike = await fetchImpl(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
   });
   if (response.status !== 200) {
-    throw new Error(`Tdarr report API returned status ${response.status}.`);
+    throw new Error(`Tdarr report API returned status ${String(response.status)}.`);
   }
   return response.json();
-};
+}
 
-const expectStringArray = (value: unknown): string[] => {
+function expectStringArray(value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
     throw new Error("Tdarr report API did not return a string array.");
   }
   return value;
-};
+}
 
-const expectReportText = (value: unknown): string => {
+function expectReportText(value: unknown): string {
   if (typeof value !== "object" || value === null || typeof (value as { text?: unknown }).text !== "string") {
     throw new Error("Tdarr report API did not return report text.");
   }
   return (value as { text: string }).text;
-};
+}
 
 export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient {
   private readonly fetchImpl: FetchLike;
@@ -61,17 +61,14 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
   private readonly apiKey?: string;
 
   public constructor(params: { policy: TwoPassLoudness.Policy; host: Tdarr.HostInfo; fetchImpl?: FetchLike }) {
-    const fetchImpl = params.fetchImpl ?? globalThis.fetch;
-    if (!fetchImpl) {
-      throw new Error("Global fetch is unavailable; cannot read Tdarr reports.");
-    }
+    const fetchImpl: FetchLike = params.fetchImpl ?? globalThis.fetch;
     this.fetchImpl = fetchImpl;
     this.serverUrl = getServerUrl(params.policy);
     this.apiKey = params.host.configVars?.config?.apiKey;
   }
 
   public async listFootprintReports(file: Tdarr.MediaMetadata): Promise<string[]> {
-    const response = await postJson(
+    const response: unknown = await postJson(
       this.fetchImpl,
       `${this.serverUrl}/api/v2/list-footprintId-reports`,
       {
@@ -82,14 +79,14 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
       this.apiKey,
     );
     return expectStringArray(response).sort((left, right) => {
-      const leftJob = parseJobName(left);
-      const rightJob = parseJobName(right);
+      const leftJob: { jobId: string; start: number } = parseJobName(left);
+      const rightJob: { jobId: string; start: number } = parseJobName(right);
       return rightJob.start - leftJob.start;
     });
   }
 
   public async readJobFile(file: Tdarr.MediaMetadata, jobFileId: string): Promise<string> {
-    const response = await postJson(
+    const response: unknown = await postJson(
       this.fetchImpl,
       `${this.serverUrl}/api/v2/read-job-file`,
       {
@@ -105,8 +102,10 @@ export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient 
   }
 }
 
-export const createTdarrReportClient = (params: {
+export function createTdarrReportClient(params: {
   policy: TwoPassLoudness.Policy;
   host: Tdarr.HostInfo;
   fetchImpl?: FetchLike;
-}): TwoPassLoudness.TdarrReportClient => new HttpTdarrReportClient(params);
+}): TwoPassLoudness.TdarrReportClient {
+  return new HttpTdarrReportClient(params);
+}

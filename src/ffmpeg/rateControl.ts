@@ -1,15 +1,19 @@
 import type { Encoder, Ffmpeg } from "../tdarr/types";
 
-const normalizeBitrate = (bitrate: number): string => Math.max(1, Math.round(bitrate)).toString();
+function normalizeBitrate(bitrate: number): string {
+  return Math.max(1, Math.round(bitrate)).toString();
+}
 
-const bitrateArgs = (request: Ffmpeg.RateControlRequest): Ffmpeg.Argv => [
-  "-b:v",
-  normalizeBitrate(request.bitrate.target),
-  "-maxrate",
-  normalizeBitrate(request.bitrate.maximum),
-  "-bufsize",
-  normalizeBitrate(request.bitrate.current),
-];
+function bitrateArgs(request: Ffmpeg.RateControlRequest): Ffmpeg.Argv {
+  return [
+    "-b:v",
+    normalizeBitrate(request.bitrate.target),
+    "-maxrate",
+    normalizeBitrate(request.bitrate.maximum),
+    "-bufsize",
+    normalizeBitrate(request.bitrate.current),
+  ];
+}
 
 interface RateControlStrategy {
   supports(encoderName: Encoder.Name): boolean;
@@ -22,7 +26,7 @@ class NvencRateControlStrategy implements RateControlStrategy {
   }
 
   public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
-    const base = bitrateArgs(request);
+    const base: Ffmpeg.Argv = bitrateArgs(request);
     return {
       args: ["-rc:v", "vbr", "-cq:v", "19", ...base, "-spatial_aq:v", "1", "-rc-lookahead:v", "32"],
       description: "NVENC VBR HQ with CQ 19",
@@ -36,7 +40,7 @@ class QsvRateControlStrategy implements RateControlStrategy {
   }
 
   public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
-    const base = bitrateArgs(request);
+    const base: Ffmpeg.Argv = bitrateArgs(request);
     return {
       args: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
       description: "QSV bitrate mode with extbrc lookahead",
@@ -81,7 +85,9 @@ export class RateControlPlanner {
   ) {}
 
   public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
-    const strategy = this.strategies.find((candidate) => candidate.supports(request.encoderName));
+    const strategy: RateControlStrategy | undefined = this.strategies.find((candidate) =>
+      candidate.supports(request.encoderName),
+    );
     if (!strategy) {
       throw new Error(`No rate-control strategy registered for ${request.encoderName}.`);
     }
@@ -89,6 +95,6 @@ export class RateControlPlanner {
   }
 }
 
-export const getEncoderRateControl = (request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan => {
+export function getEncoderRateControl(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
   return new RateControlPlanner().plan(request);
-};
+}

@@ -1,4 +1,5 @@
 import { VideoTdarrPlugin, type PluginExecutionContext } from "../../core/plugin";
+import { TranscodeResponseBuilder } from "../../core/response";
 import type { Runtime, Tdarr } from "../../tdarr/types";
 import { AudioStreamDetector } from "./audio";
 import { details } from "./details";
@@ -19,7 +20,7 @@ class LoudnessStage {
   private constructor(public readonly value?: TwoPassLoudness.NormalisationStage) {}
 
   public static from(file: Tdarr.MediaMetadata): LoudnessStage {
-    const stage = file.ffProbeData?.format?.tags?.[normalisationStageTag];
+    const stage: string | undefined = file.ffProbeData?.format?.tags?.[normalisationStageTag];
     if (stage === "FirstPassComplete" || stage === "Complete") {
       return new LoudnessStage(stage);
     }
@@ -44,7 +45,7 @@ class TwoPassLoudnessPlugin extends VideoTdarrPlugin<TwoPassLoudness.Policy, Two
     super(details, options);
   }
 
-  protected createResponse() {
+  protected createResponse(): TranscodeResponseBuilder {
     return super.createResponse().setContainer(".mkv");
   }
 
@@ -53,16 +54,16 @@ class TwoPassLoudnessPlugin extends VideoTdarrPlugin<TwoPassLoudness.Policy, Two
   }
 
   protected async executeVideo(context: PluginExecutionContext<TwoPassLoudness.Policy>): Promise<void> {
-    const audioStreams = this.audioDetector.detect(context.rawFile);
+    const audioStreams: ReturnType<AudioStreamDetector["detect"]> = this.audioDetector.detect(context.rawFile);
 
     if (audioStreams.isEmpty()) {
       context.response.log("No audio streams detected.").skip();
       return;
     }
 
-    const stage = LoudnessStage.from(context.rawFile);
+    const stage: LoudnessStage = LoudnessStage.from(context.rawFile);
     if (stage.isPendingFirstPass()) {
-      context.response.log(`Detected ${audioStreams.length} audio stream(s). Running loudnorm analysis pass.`);
+      context.response.log(`Detected ${String(audioStreams.length)} audio stream(s). Running loudnorm analysis pass.`);
       context.response.transcode(
         renderPreset(
           this.commandBuilder.buildFirstPassArgs({
@@ -79,19 +80,21 @@ class TwoPassLoudnessPlugin extends VideoTdarrPlugin<TwoPassLoudness.Policy, Two
       return;
     }
 
-    const reportClient = this.resolveReportClient(context);
-    const reports = await reportClient.listFootprintReports(context.rawFile);
+    const reportClient: TwoPassLoudness.TdarrReportClient = this.resolveReportClient(context);
+    const reports: string[] = await reportClient.listFootprintReports(context.rawFile);
     if (reports.length === 0) {
       throw new Error("No Tdarr job reports found for loudnorm first pass.");
     }
-    const report = await reportClient.readJobFile(context.rawFile, reports[0]);
-    const measuredValues = this.reportParser.parse(report);
+    const report: string = await reportClient.readJobFile(context.rawFile, reports[0]);
+    const measuredValues: TwoPassLoudness.LoudnormMeasuredValues[] = this.reportParser.parse(report);
 
     if (measuredValues.length < audioStreams.length) {
-      throw new Error(`Expected ${audioStreams.length} loudnorm measurement set(s), found ${measuredValues.length}.`);
+      throw new Error(
+        `Expected ${String(audioStreams.length)} loudnorm measurement set(s), found ${String(measuredValues.length)}.`,
+      );
     }
 
-    context.response.log(`Read ${measuredValues.length} loudnorm measurement set(s) from first-pass report.`);
+    context.response.log(`Read ${String(measuredValues.length)} loudnorm measurement set(s) from first-pass report.`);
     context.response.transcode(
       renderPreset(
         this.commandBuilder.buildSecondPassArgs({
@@ -118,8 +121,9 @@ class TwoPassLoudnessPlugin extends VideoTdarrPlugin<TwoPassLoudness.Policy, Two
   }
 }
 
-export const createPlugin = (options?: TwoPassLoudnessOptions): Tdarr.PluginEntrypoint =>
-  new TwoPassLoudnessPlugin(options).entrypoint();
+export function createPlugin(options?: TwoPassLoudnessOptions): Tdarr.PluginEntrypoint {
+  return new TwoPassLoudnessPlugin(options).entrypoint();
+}
 
 export { details };
-export const plugin = createPlugin();
+export const plugin: Tdarr.PluginEntrypoint = createPlugin();

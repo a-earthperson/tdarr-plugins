@@ -17,38 +17,42 @@ const resolutionTargets: Record<Exclude<Media.VideoResolutionTarget, "none">, Re
   },
 };
 
-const getResolutionTarget = (
+function getResolutionTarget(
   targetResolution: Media.VideoResolutionTarget,
   width: number,
   height: number,
-): { width: number; height: number } | null => {
+): { width: number; height: number } | null {
   if (targetResolution === "none") return null;
-  const target = resolutionTargets[targetResolution];
-  if (!target) return null;
+  const target: ResolutionTarget = resolutionTargets[targetResolution];
   return width >= height ? target.landscape : target.portrait;
-};
+}
 
-export const streamNeedsResize = (
+export function streamNeedsResize(
   stream: { width?: number; height?: number },
   targetResolution: Media.VideoResolutionTarget,
-): boolean => {
+): boolean {
   if (targetResolution === "none" || typeof stream.width !== "number" || typeof stream.height !== "number") {
     return false;
   }
-  const target = getResolutionTarget(targetResolution, stream.width, stream.height);
+  const target: { width: number; height: number } | null = getResolutionTarget(
+    targetResolution,
+    stream.width,
+    stream.height,
+  );
   if (!target) return false;
   return stream.width > target.width || stream.height > target.height;
-};
+}
 
-export const getResolutionFilter = (encoder: string, targetResolution: Media.VideoResolutionTarget): string => {
+export function getResolutionFilter(encoder: string, targetResolution: Media.VideoResolutionTarget): string {
   if (targetResolution === "none") return "";
-  const target = resolutionTargets[targetResolution];
-  if (!target) return "";
-  const scaleFactor = `min(1,if(gte(iw,ih),min(${target.landscape.width}/iw,${target.landscape.height}/ih),min(${target.portrait.width}/iw,${target.portrait.height}/ih)))`;
-  const filterName = encoder.includes("nvenc") ? "scale_cuda" : "scale";
+  const target: ResolutionTarget = resolutionTargets[targetResolution];
+  const scaleFactor: string = `min(1,if(gte(iw,ih),min(${String(target.landscape.width)}/iw,${String(
+    target.landscape.height,
+  )}/ih),min(${String(target.portrait.width)}/iw,${String(target.portrait.height)}/ih)))`;
+  const filterName: string = encoder.includes("nvenc") ? "scale_cuda" : "scale";
   return `${filterName}=w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
-};
+}
 
-export const upsertVideoFilterTokens = (tokens: Ffmpeg.Argv, videoFilter: string): Ffmpeg.Argv => {
+export function upsertVideoFilterTokens(tokens: Ffmpeg.Argv, videoFilter: string): Ffmpeg.Argv {
   return FfmpegArguments.of(tokens).upsertVideoFilter(videoFilter).toArray();
-};
+}

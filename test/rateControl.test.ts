@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { getEncoderRateControl, RateControlPlanner } from "../src/ffmpeg/rateControl";
+import type { Ffmpeg } from "../src/tdarr/types";
 
 describe("rate control", () => {
   test("uses nvenc vbr hq profile", () => {
-    const result = getEncoderRateControl({
+    const result: Ffmpeg.RateControlPlan = getEncoderRateControl({
       encoderName: "hevc_nvenc",
       bitrate: {
         current: 8_000_000,
@@ -18,7 +19,7 @@ describe("rate control", () => {
   });
 
   test("uses qsv extbrc flags", () => {
-    const result = getEncoderRateControl({
+    const result: Ffmpeg.RateControlPlan = getEncoderRateControl({
       encoderName: "hevc_qsv",
       bitrate: {
         current: 8_000_000,
@@ -32,7 +33,7 @@ describe("rate control", () => {
   });
 
   test("RateControlPlanner dispatches by encoder strategy", () => {
-    const result = new RateControlPlanner().plan({
+    const result: Ffmpeg.RateControlPlan = new RateControlPlanner().plan({
       encoderName: "libx265",
       bitrate: {
         current: 8_000_000,

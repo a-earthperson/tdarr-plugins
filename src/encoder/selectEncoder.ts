@@ -15,7 +15,7 @@ class EncoderProbe {
 
   public async supports(candidate: Encoder.Candidate): Promise<boolean> {
     return new Promise((resolve) => {
-      const command = renderArguments([
+      const command: string = renderArguments([
         this.ffmpegPath,
         ...candidate.inputArgs,
         "-f",
@@ -36,26 +36,30 @@ class EncoderProbe {
   }
 }
 
-const candidate = (
+function candidate(
   name: Encoder.Name,
   codec: Media.VideoCodec,
   family: Encoder.Candidate["family"],
   inputArgs: Encoder.Candidate["inputArgs"] = [],
   probeFilterArgs: Encoder.Candidate["probeFilterArgs"] = [],
-): Encoder.Candidate => ({
-  name,
-  codec,
-  family,
-  inputArgs,
-  outputArgs: [],
-  probeFilterArgs,
-});
+): Encoder.Candidate {
+  return {
+    name,
+    codec,
+    family,
+    inputArgs,
+    outputArgs: [],
+    probeFilterArgs,
+  };
+}
 
-const softwareCandidate = (codec: Media.VideoCodec): Encoder.Candidate =>
-  codec === "hevc" ? candidate("libx265", "hevc", "software") : candidate("libx264", "h264", "software");
+function softwareCandidate(codec: Media.VideoCodec): Encoder.Candidate {
+  return codec === "hevc" ? candidate("libx265", "hevc", "software") : candidate("libx264", "h264", "software");
+}
 
-const workerCanUseGpu = (workerType?: string): boolean =>
-  typeof workerType === "string" && workerType.toLowerCase().includes("gpu");
+function workerCanUseGpu(workerType?: string): boolean {
+  return typeof workerType === "string" && workerType.toLowerCase().includes("gpu");
+}
 
 export class EncoderCatalog {
   private readonly hardwareCandidates: readonly Encoder.Candidate[] = [
@@ -95,21 +99,23 @@ export class EncoderSelector {
 
   public async select(params: { policy: Encoder.SelectionPolicy; host: Tdarr.HostInfo }): Promise<EncoderSelection> {
     const { policy, host } = params;
-    const ffmpegPath = host.ffmpegPath ?? "ffmpeg";
+    const ffmpegPath: string = host.ffmpegPath ?? "ffmpeg";
 
     if (workerCanUseGpu(host.workerType) && policy.tryUseGpu) {
-      const candidates = this.catalog.hardwareFor(policy.targetCodec);
-      const probe = new EncoderProbe(ffmpegPath, this.childProcess);
+      const candidates: readonly Encoder.Candidate[] = this.catalog.hardwareFor(policy.targetCodec);
+      const probe: EncoderProbe = new EncoderProbe(ffmpegPath, this.childProcess);
       const enabled: Encoder.Candidate[] = [];
       for (const gpuCandidate of candidates) {
-        const available = await probe.supports(gpuCandidate);
+        const available: boolean = await probe.supports(gpuCandidate);
         if (available) enabled.push(gpuCandidate);
       }
 
       if (enabled.length > 0) {
-        let selected = enabled[0];
+        let selected: Encoder.Candidate = enabled[0];
         if (selected.family === "vaapi") {
-          const qsv = enabled.find((enabledCandidate) => enabledCandidate.family === "qsv");
+          const qsv: Encoder.Candidate | undefined = enabled.find(
+            (enabledCandidate) => enabledCandidate.family === "qsv",
+          );
           if (qsv) selected = qsv;
         }
         if (selected.family === "nvenc") {
@@ -126,13 +132,13 @@ export class EncoderSelector {
   }
 }
 
-export const selectEncoder = async (params: {
+export async function selectEncoder(params: {
   policy: Encoder.SelectionPolicy;
   host: Tdarr.HostInfo;
   childProcess: Runtime.ChildProcessAdapter;
-}): Promise<EncoderSelection> => {
+}): Promise<EncoderSelection> {
   return new EncoderSelector(params.childProcess).select({
     policy: params.policy,
     host: params.host,
   });
-};
+}

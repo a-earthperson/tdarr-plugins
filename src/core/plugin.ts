@@ -42,11 +42,11 @@ export abstract class TdarrPlugin<TPolicy, TOptions extends PluginRuntimeOptions
 
   public entrypoint(): Tdarr.PluginEntrypoint {
     return async (file, librarySettings, inputs, otherArguments) => {
-      const runtime = this.options.runtime ?? createDefaultTdarrRuntime();
-      const childProcess = this.options.childProcess ?? defaultChildProcess;
-      const loadedInputs = runtime.loadDefaultValues(inputs ?? {}, this.detailsProvider);
-      const normalized = this.normalizeInputs(loadedInputs);
-      const response = this.createResponse();
+      const runtime: Tdarr.RuntimeMethods = this.options.runtime ?? createDefaultTdarrRuntime();
+      const childProcess: Runtime.ChildProcessAdapter = this.options.childProcess ?? defaultChildProcess;
+      const loadedInputs: Record<string, unknown> = runtime.loadDefaultValues(inputs, this.detailsProvider);
+      const normalized: NormalizedPolicy<TPolicy> = this.normalizeInputs(loadedInputs);
+      const response: TranscodeResponseBuilder = this.createResponse();
       response.logAll(normalized.warnings);
 
       const context: PluginExecutionContext<TPolicy> = {

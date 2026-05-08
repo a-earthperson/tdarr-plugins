@@ -1,4 +1,15 @@
-export const plugins = [
+export const plugins: readonly [
+  {
+    readonly artifactName: "reencode";
+    readonly entry: "src/plugins/reencode/index.ts";
+    readonly rootArtifact: "reencode.js";
+  },
+  {
+    readonly artifactName: "two-pass-loudness";
+    readonly entry: "src/plugins/two-pass-loudness/index.ts";
+    readonly rootArtifact: "two-pass-loudness.js";
+  },
+] = [
   {
     artifactName: "reencode",
     entry: "src/plugins/reencode/index.ts",
@@ -11,6 +22,8 @@ export const plugins = [
   },
 ] as const;
 
-export const pluginBuildEntries = Object.fromEntries(
-  plugins.map((plugin) => [plugin.artifactName, plugin.entry]),
-) as Record<(typeof plugins)[number]["artifactName"], (typeof plugins)[number]["entry"]>;
+export const pluginBuildEntries: Record<(typeof plugins)[number]["artifactName"], (typeof plugins)[number]["entry"]> =
+  Object.fromEntries(plugins.map((plugin) => [plugin.artifactName, plugin.entry])) as Record<
+    (typeof plugins)[number]["artifactName"],
+    (typeof plugins)[number]["entry"]
+  >;

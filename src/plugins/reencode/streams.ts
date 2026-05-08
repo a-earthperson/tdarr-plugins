@@ -2,20 +2,22 @@ import { streamNeedsResize } from "../../ffmpeg/filters";
 import type { Ffmpeg, Media, Tdarr } from "../../tdarr/types";
 import { shouldDropForContainerConformance } from "./policy";
 
-const normalize = (value: unknown): string => (typeof value === "string" ? value.trim().toLowerCase() : "");
+function normalize(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
 
-export const isUnsupportedStream = (stream: Tdarr.FileStream): boolean => {
-  const codecName = normalize(stream.codec_name);
-  const codecType = normalize(stream.codec_type);
+export function isUnsupportedStream(stream: Tdarr.FileStream): boolean {
+  const codecName: string = normalize(stream.codec_name);
+  const codecType: string = normalize(stream.codec_type);
   return (
     codecName === "" || codecName === "none" || codecName === "unknown" || codecType === "" || codecType === "unknown"
   );
-};
+}
 
-export const isDisposableVideoStream = (stream: Tdarr.FileStream): boolean => {
-  const codecName = normalize(stream.codec_name);
+export function isDisposableVideoStream(stream: Tdarr.FileStream): boolean {
+  const codecName: string = normalize(stream.codec_name);
   return codecName === "mjpeg" || codecName === "png";
-};
+}
 
 export type StreamDecisionKind =
   | "drop-unsupported"
@@ -58,7 +60,7 @@ export class ReencodeStreamAnalyzer {
     };
 
     streams.forEach((stream, index) => {
-      const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
+      const codecName: string = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
       if (isUnsupportedStream(stream)) {
         result.decisions.push({ kind: "drop-unsupported", streamIndex: index, codecName });
         result.mappingChanged = true;
@@ -117,16 +119,17 @@ export class ReencodeStreamAnalyzer {
   }
 }
 
-export const analyzeStreams = (params: {
+export function analyzeStreams(params: {
   streams: readonly Tdarr.FileStream[];
   targetResolution: Media.VideoResolutionTarget;
   forceConform: boolean;
   targetContainer: Media.OutputContainer;
-}): StreamAnalysisResult => {
+}): StreamAnalysisResult {
   return new ReencodeStreamAnalyzer(params.targetResolution, params.forceConform, params.targetContainer).analyze(
     params.streams,
   );
-};
+}
 
-export const streamMapTokens = (streamIndexes: readonly number[]): Ffmpeg.Argv =>
-  streamIndexes.flatMap((streamIndex) => ["-map", `0:${streamIndex}`]);
+export function streamMapTokens(streamIndexes: readonly number[]): Ffmpeg.Argv {
+  return streamIndexes.flatMap((streamIndex) => ["-map", `0:${String(streamIndex)}`]);
+}

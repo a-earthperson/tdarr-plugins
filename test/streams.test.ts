@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { analyzeStreams, streamMapTokens } from "../src/plugins/reencode/streams";
+import { analyzeStreams, streamMapTokens, type StreamAnalysisResult } from "../src/plugins/reencode/streams";
+import type { Ffmpeg } from "../src/tdarr/types";
 
 describe("stream analysis", () => {
   test("drops unsupported and disposable streams", () => {
-    const result = analyzeStreams({
+    const result: StreamAnalysisResult = analyzeStreams({
       streams: [
         { codec_type: "video", codec_name: "mjpeg" },
         { codec_type: "video", codec_name: "h264", width: 1920, height: 1080 },
@@ -25,6 +26,7 @@ describe("stream analysis", () => {
   });
 
   test("creates map token list", () => {
-    expect(streamMapTokens([1, 0, 2])).toEqual(["-map", "0:1", "-map", "0:0", "-map", "0:2"]);
+    const result: Ffmpeg.Argv = streamMapTokens([1, 0, 2]);
+    expect(result).toEqual(["-map", "0:1", "-map", "0:0", "-map", "0:2"]);
   });
 });

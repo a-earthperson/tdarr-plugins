@@ -20,7 +20,8 @@ export class MediaFile {
     if (preference !== "original") {
       return { container: preference, warnings: [] };
     }
-    const normalized = typeof this.metadata.container === "string" ? this.metadata.container.trim().toLowerCase() : "";
+    const normalized: string =
+      typeof this.metadata.container === "string" ? this.metadata.container.trim().toLowerCase() : "";
     if (MediaValues.outputContainers.includes(normalized as Media.OutputContainer)) {
       return { container: normalized as Media.OutputContainer, warnings: [] };
     }
@@ -34,10 +35,10 @@ export class MediaFile {
     const candidates: unknown[] = [
       this.metadata.ffProbeData?.format?.duration,
       this.metadata.meta?.Duration,
-      this.metadata.ffProbeData?.streams?.[0]?.duration,
+      this.metadata.ffProbeData?.streams[0]?.duration,
     ];
     for (const candidate of candidates) {
-      const parsed = typeof candidate === "number" ? candidate : Number(candidate);
+      const parsed: number = typeof candidate === "number" ? candidate : Number(candidate);
       if (isFiniteNonNegative(parsed) && parsed > 0) {
         return { kind: "ok", seconds: parsed };
       }
@@ -50,7 +51,7 @@ export class MediaFile {
   }
 
   public bitrateBudget(durationSeconds: number, multiplier: number): Media.BitrateBudgetResult {
-    const fileSizeMb =
+    const fileSizeMb: number =
       typeof this.metadata.file_size === "number" ? this.metadata.file_size : Number(this.metadata.file_size);
     if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
       return {
@@ -59,7 +60,7 @@ export class MediaFile {
       };
     }
 
-    const current = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
+    const current: number = (fileSizeMb * 1024 * 1024 * 8) / durationSeconds;
     if (!Number.isFinite(current) || current <= 0) {
       return {
         kind: "invalid",
@@ -67,7 +68,7 @@ export class MediaFile {
       };
     }
 
-    const target = current * multiplier;
+    const target: number = current * multiplier;
     if (!Number.isFinite(target) || target <= 0) {
       return {
         kind: "invalid",
