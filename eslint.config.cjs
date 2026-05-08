@@ -52,6 +52,13 @@ module.exports = tseslint.config(
         },
       ],
       "@typescript-eslint/explicit-function-return-type": "warn",
+      "@typescript-eslint/typedef": [
+        "error",
+        {
+          variableDeclaration: true,
+        },
+      ],
+      "@typescript-eslint/no-inferrable-types": "off",
       "@typescript-eslint/no-restricted-types": [
         "warn",
         {
