@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { TdarrDetails, TdarrRuntimeMethods } from "../tdarr/types";
+import type { PluginSpec, TdarrRuntimeMethods } from "../tdarr/types";
 
 const resolveFromCandidates = <T>(relativeCandidates: string[]): T => {
   const loadErrors: string[] = [];
@@ -40,7 +40,7 @@ export const createDefaultTdarrRuntime = (): TdarrRuntimeMethods => {
   } catch {
     const fallbackLoadDefaultValues: TdarrRuntimeMethods["loadDefaultValues"] = (
       inputs: Record<string, unknown>,
-      detailsProvider: () => TdarrDetails
+      detailsProvider: () => PluginSpec
     ) => {
       const next = { ...(inputs ?? {}) };
       const inputSpecs = detailsProvider().Inputs ?? [];
