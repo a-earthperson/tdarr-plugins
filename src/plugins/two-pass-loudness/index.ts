@@ -1,98 +1,105 @@
-import { createDefaultTdarrRuntime } from "../../runtime/tdarrMethods";
+import { VideoTdarrPlugin, type PluginExecutionContext } from "../../core/plugin";
 import type { Runtime, Tdarr } from "../../tdarr/types";
-import { detectAudioStreams } from "./audio";
+import { AudioStreamDetector } from "./audio";
 import { details } from "./details";
 import {
-  buildFirstPassArgs,
-  buildSecondPassArgs,
+  LoudnormCommandBuilder,
+  LoudnormReportParser,
   normalisationStageTag,
-  parseLoudnormValuesFromReport,
   renderPreset,
 } from "./loudnorm";
 import { normalizeInputs } from "./policy";
 import { createTdarrReportClient } from "./reports";
 import type { TwoPassLoudness } from "./types";
 
-const createResponse = (): Tdarr.TranscodeResponse => ({
-  processFile: false,
-  preset: "",
-  container: ".mkv",
-  handBrakeMode: false,
-  FFmpegMode: true,
-  reQueueAfter: true,
-  infoLog: "",
-});
+type FetchImpl = Parameters<typeof createTdarrReportClient>[0]["fetchImpl"];
 
-const getNormalisationStage = (
-  file: Tdarr.MediaMetadata
-): TwoPassLoudness.NormalisationStage | undefined => {
-  const stage = file.ffProbeData?.format?.tags?.[normalisationStageTag];
-  if (stage === "FirstPassComplete" || stage === "Complete") return stage;
-  return undefined;
-};
+interface TwoPassLoudnessOptions extends Partial<Pick<Runtime.Dependencies, "childProcess">> {
+  runtime?: Tdarr.RuntimeMethods;
+  reportClient?: TwoPassLoudness.TdarrReportClient;
+  fetchImpl?: FetchImpl;
+}
 
-export const createPlugin =
-  (options?: {
-    runtime?: Tdarr.RuntimeMethods;
-    reportClient?: TwoPassLoudness.TdarrReportClient;
-    fetchImpl?: Parameters<typeof createTdarrReportClient>[0]["fetchImpl"];
-  } & Partial<Pick<Runtime.Dependencies, "childProcess">>): Tdarr.PluginEntrypoint =>
-  async (file, librarySettings, inputs, otherArguments) => {
-    void librarySettings;
-    void options?.childProcess;
-    const runtime = options?.runtime ?? createDefaultTdarrRuntime();
-    const response = createResponse();
-    const pushLog = (line: string): void => {
-      response.infoLog += `${line}\n`;
-    };
+class LoudnessStage {
+  private constructor(public readonly value?: TwoPassLoudness.NormalisationStage) {}
 
-    if (file.fileMedium !== "video") {
-      pushLog("File is not a video.");
-      return response;
+  public static from(file: Tdarr.MediaMetadata): LoudnessStage {
+    const stage = file.ffProbeData?.format?.tags?.[normalisationStageTag];
+    if (stage === "FirstPassComplete" || stage === "Complete") {
+      return new LoudnessStage(stage);
+    }
+    return new LoudnessStage(undefined);
+  }
+
+  public isPendingFirstPass(): boolean {
+    return this.value === undefined;
+  }
+
+  public isComplete(): boolean {
+    return this.value === "Complete";
+  }
+}
+
+class TwoPassLoudnessPlugin extends VideoTdarrPlugin<
+  TwoPassLoudness.Policy,
+  TwoPassLoudnessOptions
+> {
+  private readonly audioDetector = new AudioStreamDetector();
+  private readonly commandBuilder = new LoudnormCommandBuilder();
+  private readonly reportParser = new LoudnormReportParser();
+
+  public constructor(options?: TwoPassLoudnessOptions) {
+    super(details, options);
+  }
+
+  protected createResponse() {
+    return super.createResponse().setContainer(".mkv");
+  }
+
+  protected normalizeInputs(
+    rawInputs: Record<string, unknown>
+  ): TwoPassLoudness.NormalizedInputResult {
+    return normalizeInputs(rawInputs);
+  }
+
+  protected async executeVideo(
+    context: PluginExecutionContext<TwoPassLoudness.Policy>
+  ): Promise<void> {
+    const audioStreams = this.audioDetector.detect(context.rawFile);
+
+    if (audioStreams.isEmpty()) {
+      context.response.log("No audio streams detected.").skip();
+      return;
     }
 
-    const loadedDefaults = runtime.loadDefaultValues(inputs ?? {}, details);
-    const normalizedInputs = normalizeInputs(loadedDefaults);
-    normalizedInputs.warnings.forEach(pushLog);
-    const policy = normalizedInputs.policy;
-    const audioStreams = detectAudioStreams(file);
-
-    if (audioStreams.length === 0) {
-      pushLog("No audio streams detected.");
-      return response;
-    }
-
-    const stage = getNormalisationStage(file);
-    if (!stage) {
-      pushLog(`Detected ${audioStreams.length} audio stream(s). Running loudnorm analysis pass.`);
-      response.preset = renderPreset(
-        buildFirstPassArgs({
-          audioStreams,
-          policy,
-        })
+    const stage = LoudnessStage.from(context.rawFile);
+    if (stage.isPendingFirstPass()) {
+      context.response.log(
+        `Detected ${audioStreams.length} audio stream(s). Running loudnorm analysis pass.`
       );
-      response.processFile = true;
-      return response;
+      context.response.transcode(
+        renderPreset(
+          this.commandBuilder.buildFirstPassArgs({
+            audioStreams: audioStreams.toArray(),
+            policy: context.policy,
+          })
+        )
+      );
+      return;
     }
 
-    if (stage === "Complete") {
-      pushLog("File is already marked as normalised.");
-      return response;
+    if (stage.isComplete()) {
+      context.response.log("File is already marked as normalised.").skip();
+      return;
     }
 
-    const reportClient =
-      options?.reportClient ??
-      createTdarrReportClient({
-        policy,
-        host: otherArguments,
-        fetchImpl: options?.fetchImpl,
-      });
-    const reports = await reportClient.listFootprintReports(file);
+    const reportClient = this.resolveReportClient(context);
+    const reports = await reportClient.listFootprintReports(context.rawFile);
     if (reports.length === 0) {
       throw new Error("No Tdarr job reports found for loudnorm first pass.");
     }
-    const report = await reportClient.readJobFile(file, reports[0]);
-    const measuredValues = parseLoudnormValuesFromReport(report);
+    const report = await reportClient.readJobFile(context.rawFile, reports[0]);
+    const measuredValues = this.reportParser.parse(report);
 
     if (measuredValues.length < audioStreams.length) {
       throw new Error(
@@ -100,18 +107,37 @@ export const createPlugin =
       );
     }
 
-    pushLog(`Read ${measuredValues.length} loudnorm measurement set(s) from first-pass report.`);
-    response.preset = renderPreset(
-      buildSecondPassArgs({
-        audioStreams,
-        measuredValues,
-        policy,
+    context.response.log(
+      `Read ${measuredValues.length} loudnorm measurement set(s) from first-pass report.`
+    );
+    context.response.transcode(
+      renderPreset(
+        this.commandBuilder.buildSecondPassArgs({
+          audioStreams: audioStreams.toArray(),
+          measuredValues,
+          policy: context.policy,
+        })
+      )
+    );
+    context.response.log("Applying loudness normalization and appending normalized audio streams.");
+  }
+
+  private resolveReportClient(
+    context: PluginExecutionContext<TwoPassLoudness.Policy>
+  ): TwoPassLoudness.TdarrReportClient {
+    return (
+      this.options.reportClient ??
+      createTdarrReportClient({
+        policy: context.policy,
+        host: context.host,
+        fetchImpl: this.options.fetchImpl,
       })
     );
-    response.processFile = true;
-    pushLog("Applying loudness normalization and appending normalized audio streams.");
-    return response;
-  };
+  }
+}
+
+export const createPlugin = (options?: TwoPassLoudnessOptions): Tdarr.PluginEntrypoint =>
+  new TwoPassLoudnessPlugin(options).entrypoint();
 
 export { details };
 export const plugin = createPlugin();

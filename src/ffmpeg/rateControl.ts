@@ -12,20 +12,18 @@ const bitrateArgs = (request: Ffmpeg.RateControlRequest): Ffmpeg.Argv => [
   normalizeBitrate(request.bitrate.current),
 ];
 
-const isNvenc = (encoderName: Encoder.Name): boolean =>
-  encoderName === "hevc_nvenc" || encoderName === "h264_nvenc";
+interface RateControlStrategy {
+  supports(encoderName: Encoder.Name): boolean;
+  plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan;
+}
 
-const isQsv = (encoderName: Encoder.Name): boolean =>
-  encoderName === "hevc_qsv" || encoderName === "h264_qsv";
+class NvencRateControlStrategy implements RateControlStrategy {
+  public supports(encoderName: Encoder.Name): boolean {
+    return encoderName === "hevc_nvenc" || encoderName === "h264_nvenc";
+  }
 
-const isSoftware = (encoderName: Encoder.Name): boolean =>
-  encoderName === "libx265" || encoderName === "libx264";
-
-export const getEncoderRateControl = (
-  request: Ffmpeg.RateControlRequest
-): Ffmpeg.RateControlPlan => {
-  const base = bitrateArgs(request);
-  if (isNvenc(request.encoderName)) {
+  public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
+    const base = bitrateArgs(request);
     return {
       args: [
         "-rc:v",
@@ -41,20 +39,69 @@ export const getEncoderRateControl = (
       description: "NVENC VBR HQ with CQ 19",
     };
   }
-  if (isQsv(request.encoderName)) {
+}
+
+class QsvRateControlStrategy implements RateControlStrategy {
+  public supports(encoderName: Encoder.Name): boolean {
+    return encoderName === "hevc_qsv" || encoderName === "h264_qsv";
+  }
+
+  public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
+    const base = bitrateArgs(request);
     return {
       args: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
       description: "QSV bitrate mode with extbrc lookahead",
     };
   }
-  if (isSoftware(request.encoderName)) {
+}
+
+class SoftwareRateControlStrategy implements RateControlStrategy {
+  public supports(encoderName: Encoder.Name): boolean {
+    return encoderName === "libx265" || encoderName === "libx264";
+  }
+
+  public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
     return {
-      args: base,
+      args: bitrateArgs(request),
       description: "software encoder bitrate mode",
     };
   }
-  return {
-    args: base,
-    description: "generic bitrate mode",
-  };
+}
+
+class GenericRateControlStrategy implements RateControlStrategy {
+  public supports(): boolean {
+    return true;
+  }
+
+  public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
+    return {
+      args: bitrateArgs(request),
+      description: "generic bitrate mode",
+    };
+  }
+}
+
+export class RateControlPlanner {
+  public constructor(
+    private readonly strategies: readonly RateControlStrategy[] = [
+      new NvencRateControlStrategy(),
+      new QsvRateControlStrategy(),
+      new SoftwareRateControlStrategy(),
+      new GenericRateControlStrategy(),
+    ]
+  ) {}
+
+  public plan(request: Ffmpeg.RateControlRequest): Ffmpeg.RateControlPlan {
+    const strategy = this.strategies.find((candidate) => candidate.supports(request.encoderName));
+    if (!strategy) {
+      throw new Error(`No rate-control strategy registered for ${request.encoderName}.`);
+    }
+    return strategy.plan(request);
+  }
+}
+
+export const getEncoderRateControl = (
+  request: Ffmpeg.RateControlRequest
+): Ffmpeg.RateControlPlan => {
+  return new RateControlPlanner().plan(request);
 };

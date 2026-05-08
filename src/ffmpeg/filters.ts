@@ -1,3 +1,4 @@
+import { FfmpegArguments } from "./args";
 import type { Ffmpeg, Media } from "../tdarr/types";
 
 interface ResolutionTarget {
@@ -59,14 +60,5 @@ export const upsertVideoFilterTokens = (
   tokens: Ffmpeg.Argv,
   videoFilter: string
 ): Ffmpeg.Argv => {
-  if (!videoFilter) return [...tokens];
-  const next = [...tokens];
-  const filterIndex = next.findIndex((token) => token === "-vf" || token === "-filter:v");
-  if (filterIndex >= 0 && filterIndex + 1 < next.length) {
-    const existing = next[filterIndex + 1];
-    next[filterIndex + 1] = `${existing},${videoFilter}`;
-    return next;
-  }
-  next.push("-vf", videoFilter);
-  return next;
+  return FfmpegArguments.of(tokens).upsertVideoFilter(videoFilter).toArray();
 };

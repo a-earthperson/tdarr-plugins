@@ -1,34 +1,15 @@
-import { exec, execSync } from "node:child_process";
-import { selectEncoder } from "../../encoder/selectEncoder";
-import { renderArguments, tokenizeArguments } from "../../ffmpeg/args";
-import { getResolutionFilter, upsertVideoFilterTokens } from "../../ffmpeg/filters";
-import { getEncoderRateControl } from "../../ffmpeg/rateControl";
-import { createDefaultTdarrRuntime } from "../../runtime/tdarrMethods";
-import type { Encoder, Ffmpeg, Runtime, Tdarr } from "../../tdarr/types";
+import { VideoTdarrPlugin, type PluginExecutionContext } from "../../core/plugin";
+import { EncoderSelector } from "../../encoder/selectEncoder";
+import { FfmpegArguments } from "../../ffmpeg/args";
+import { getResolutionFilter } from "../../ffmpeg/filters";
+import { RateControlPlanner } from "../../ffmpeg/rateControl";
+import type { Encoder, Ffmpeg, Media, Runtime, Tdarr } from "../../tdarr/types";
 import { details } from "./details";
-import {
-  calculateBitrateBudget,
-  normalizeInputs,
-  resolveDurationSeconds,
-  resolveTargetContainer,
-} from "./policy";
-import { analyzeStreams, streamMapTokens, type StreamDecision } from "./streams";
+import { normalizeInputs } from "./policy";
+import { ReencodeStreamAnalyzer, streamMapTokens, type StreamDecision } from "./streams";
+import type { Reencode } from "./types";
 
 const bframeSupport = new Set<Encoder.Name>(["hevc_nvenc", "h264_nvenc"]);
-
-const createResponse = (): Tdarr.TranscodeResponse => ({
-  processFile: false,
-  preset: "",
-  handBrakeMode: false,
-  FFmpegMode: true,
-  reQueueAfter: true,
-  infoLog: "",
-});
-
-const defaultChildProcess: Runtime.ChildProcessAdapter = {
-  exec,
-  execSync,
-};
 
 const renderStreamDecision = (
   decision: StreamDecision,
@@ -50,156 +31,182 @@ const renderStreamDecision = (
   }
 };
 
-export const createPlugin =
-  (options?: Partial<Runtime.Dependencies>): Tdarr.PluginEntrypoint =>
-  async (file, librarySettings, inputs, otherArguments) => {
-    void librarySettings;
-    const runtime = options?.runtime ?? createDefaultTdarrRuntime();
-    const childProcess = options?.childProcess ?? defaultChildProcess;
-    const response = createResponse();
-    const pushLog = (line: string): void => {
-      response.infoLog += `${line}\n`;
-    };
+class ReencodePlugin extends VideoTdarrPlugin<Reencode.Policy, Partial<Runtime.Dependencies>> {
+  public constructor(options?: Partial<Runtime.Dependencies>) {
+    super(details, options);
+  }
 
-    const loadedDefaults = runtime.loadDefaultValues(inputs ?? {}, details);
-    const normalizedInputs = normalizeInputs(loadedDefaults);
-    normalizedInputs.warnings.forEach(pushLog);
-    const policy = normalizedInputs.policy;
+  protected normalizeInputs(rawInputs: Record<string, unknown>): Reencode.NormalizedInputResult {
+    return normalizeInputs(rawInputs);
+  }
 
-    const targetContainerResult = resolveTargetContainer(policy, file);
-    targetContainerResult.warnings.forEach(pushLog);
+  protected async executeVideo(
+    context: PluginExecutionContext<Reencode.Policy>
+  ): Promise<void> {
+    const { media, policy, response } = context;
+    const targetContainerResult = media.resolveContainer(policy.container);
+    response.logAll(targetContainerResult.warnings);
     const targetContainer = targetContainerResult.container;
-    response.container = `.${targetContainer}`;
+    response.setContainer(targetContainer);
 
-    if (file.fileMedium !== "video") {
-      pushLog("File is not a video.");
-      return response;
-    }
-
-    const duration = resolveDurationSeconds(file);
+    const duration = media.duration();
     if (duration.kind === "invalid") {
-      pushLog(`${duration.reason} Skipping transcode.`);
-      return response;
+      response.log(`${duration.reason} Skipping transcode.`).skip();
+      return;
     }
 
-    const bitrateResult = calculateBitrateBudget(
-      file,
-      duration.seconds,
-      policy.targetBitrateMultiplier
-    );
+    const bitrateResult = media.bitrateBudget(duration.seconds, policy.targetBitrateMultiplier);
     if (bitrateResult.kind === "invalid" || !bitrateResult.budget) {
-      pushLog(`${bitrateResult.reason} Skipping transcode.`);
-      return response;
+      response.log(`${bitrateResult.reason} Skipping transcode.`).skip();
+      return;
     }
     if (bitrateResult.budget.current <= policy.bitrateCutoff) {
-      pushLog(`Current bitrate is below cutoff ${policy.bitrateCutoff}.`);
-      return response;
+      response.log(`Current bitrate is below cutoff ${policy.bitrateCutoff}.`).skip();
+      return;
     }
 
-    const encoderSelection = await selectEncoder({
+    const encoderSelection = await new EncoderSelector(context.childProcess).select({
       policy: {
         targetCodec: policy.targetCodec,
         tryUseGpu: policy.tryUseGpu,
         excludedGpuIds: policy.excludedGpuIds,
       },
-      host: otherArguments,
-      childProcess,
+      host: context.host,
     });
-    encoderSelection.logs.forEach(pushLog);
+    response.logAll(encoderSelection.logs);
     const encoder = encoderSelection.candidate;
 
-    const streamResult = analyzeStreams({
-      streams: file.ffProbeData?.streams ?? [],
-      targetResolution: policy.targetResolution,
-      forceConform: policy.forceConform,
-      targetContainer,
-    });
-    streamResult.decisions
-      .map((decision) => renderStreamDecision(decision, targetContainer))
-      .forEach(pushLog);
+    const streamResult = new ReencodeStreamAnalyzer(
+      policy.targetResolution,
+      policy.forceConform,
+      targetContainer
+    ).analyze(media.streams);
+    response.logAll(
+      streamResult.decisions.map((decision) => renderStreamDecision(decision, targetContainer))
+    );
 
     if (streamResult.primaryVideoStreamIndex === -1) {
-      pushLog("No supported video stream found.");
-      return response;
+      response.log("No supported video stream found.").skip();
+      return;
     }
 
-    const mappedStreamIndexes = [
+    const mapTokens = streamMapTokens([
       streamResult.primaryVideoStreamIndex,
       ...streamResult.passthroughStreamIndexes,
-    ];
-    const mapTokens = streamMapTokens(mappedStreamIndexes);
-
-    let extraTokens: Ffmpeg.Argv = [];
+    ]);
+    let extraArgs = FfmpegArguments.empty();
     if (policy.enable10Bit) {
-      extraTokens = [...extraTokens, ...tokenizeArguments(runtime.getNvenc10BitFormatArg(file))];
+      extraArgs = extraArgs.concat(
+        FfmpegArguments.parse(context.runtime.getNvenc10BitFormatArg(context.rawFile))
+      );
     }
     if (bframeSupport.has(encoder.name) && policy.bFrames.enabled) {
-      extraTokens.push("-bf", String(policy.bFrames.count));
+      extraArgs = extraArgs.append("-bf", String(policy.bFrames.count));
     }
-    const resolutionFilter = getResolutionFilter(encoder.name, policy.targetResolution);
-    extraTokens = upsertVideoFilterTokens(extraTokens, resolutionFilter);
+    extraArgs = extraArgs.upsertVideoFilter(
+      getResolutionFilter(encoder.name, policy.targetResolution)
+    );
 
-    const rateControl = getEncoderRateControl({
+    const rateControl = new RateControlPlanner().plan({
       encoderName: encoder.name,
       bitrate: bitrateResult.budget,
     });
 
-    pushLog(`Encoder selected as ${encoder.name}.`);
-    pushLog(`Encoder rate control = ${rateControl.description}.`);
-    pushLog(`Container for output selected as ${targetContainer}.`);
-    pushLog(`Resolution target selected as ${policy.targetResolution}.`);
-    pushLog(`Current bitrate = ${bitrateResult.budget.current}`);
-    pushLog("Bitrate settings:");
-    pushLog(`Target = ${bitrateResult.budget.target}`);
-    pushLog(`Minimum = ${bitrateResult.budget.minimum}`);
-    pushLog(`Maximum = ${bitrateResult.budget.maximum}`);
+    this.logTranscodePlan(context, encoder, rateControl, targetContainer, bitrateResult.budget);
 
     if (
       streamResult.primaryVideoCodec === policy.targetCodec &&
-      file.container === targetContainer &&
+      context.rawFile.container === targetContainer &&
       !streamResult.resizeRequired &&
       !streamResult.mappingChanged
     ) {
-      pushLog(`File is already ${policy.targetCodec} and in ${targetContainer}.`);
-      return response;
+      response.log(`File is already ${policy.targetCodec} and in ${targetContainer}.`).skip();
+      return;
     }
 
     if (streamResult.primaryVideoCodec === policy.targetCodec && !streamResult.resizeRequired) {
-      pushLog(
+      response.log(
         `File video is already ${policy.targetCodec} but stream mapping/container needs normalization. Remuxing.`
       );
-      response.preset = renderArguments(["<io>", ...mapTokens, "-c", "copy", ...extraTokens]);
-      response.processFile = true;
-      return response;
+      response.transcode(
+        FfmpegArguments.of(["<io>", ...mapTokens, "-c", "copy"])
+          .concat(extraArgs)
+          .render()
+      );
+      return;
     }
 
-    const prefixTokens: Ffmpeg.Argv = [];
-    if (encoder.family === "nvenc") {
-      prefixTokens.push(...tokenizeArguments(runtime.getNvdecHwaccelPreset(file)));
+    response.transcode(
+      this.buildTranscodePreset({
+        encoder,
+        rateControlArgs: rateControl.args,
+        mapTokens,
+        extraArgs,
+        targetContainer,
+        context,
+      })
+    );
+    response.log(`File is not in ${policy.targetCodec}. Transcoding.`);
+  }
+
+  private logTranscodePlan(
+    context: PluginExecutionContext<Reencode.Policy>,
+    encoder: Encoder.Candidate,
+    rateControl: Ffmpeg.RateControlPlan,
+    targetContainer: string,
+    bitrate: Media.BitrateBudget
+  ): void {
+    const { response, policy } = context;
+    response.log(`Encoder selected as ${encoder.name}.`);
+    response.log(`Encoder rate control = ${rateControl.description}.`);
+    response.log(`Container for output selected as ${targetContainer}.`);
+    response.log(`Resolution target selected as ${policy.targetResolution}.`);
+    response.log(`Current bitrate = ${bitrate.current}`);
+    response.log("Bitrate settings:");
+    response.log(`Target = ${bitrate.target}`);
+    response.log(`Minimum = ${bitrate.minimum}`);
+    response.log(`Maximum = ${bitrate.maximum}`);
+  }
+
+  private buildTranscodePreset(params: {
+    encoder: Encoder.Candidate;
+    rateControlArgs: Ffmpeg.Argv;
+    mapTokens: Ffmpeg.Argv;
+    extraArgs: FfmpegArguments;
+    targetContainer: string;
+    context: PluginExecutionContext<Reencode.Policy>;
+  }): string {
+    let prefixArgs = FfmpegArguments.empty();
+    if (params.encoder.family === "nvenc") {
+      prefixArgs = prefixArgs.concat(
+        FfmpegArguments.parse(params.context.runtime.getNvdecHwaccelPreset(params.context.rawFile))
+      );
     }
-    prefixTokens.push(...encoder.inputArgs);
-    if (targetContainer === "ts" || targetContainer === "avi") {
-      prefixTokens.push("-fflags", "+genpts");
+    prefixArgs = prefixArgs.append(...params.encoder.inputArgs);
+    if (params.targetContainer === "ts" || params.targetContainer === "avi") {
+      prefixArgs = prefixArgs.append("-fflags", "+genpts");
     }
 
-    const transcodeTokens: Ffmpeg.Argv = [
-      ...mapTokens,
+    const transcodeArgs = FfmpegArguments.of([
+      "<io>",
+      ...params.mapTokens,
       "-c",
       "copy",
       "-c:v",
-      encoder.name,
-      ...encoder.outputArgs,
-      ...rateControl.args,
+      params.encoder.name,
+      ...params.encoder.outputArgs,
+      ...params.rateControlArgs,
       "-max_muxing_queue_size",
       "9999",
-      ...extraTokens,
-    ];
+    ]).concat(params.extraArgs);
 
-    response.preset = renderArguments([...prefixTokens, "<io>", ...transcodeTokens]);
-    response.processFile = true;
-    pushLog(`File is not in ${policy.targetCodec}. Transcoding.`);
-    return response;
-  };
+    return prefixArgs.concat(transcodeArgs).render();
+  }
+}
+
+export const createPlugin = (
+  options?: Partial<Runtime.Dependencies>
+): Tdarr.PluginEntrypoint => new ReencodePlugin(options).entrypoint();
 
 export { details };
 export const plugin = createPlugin();

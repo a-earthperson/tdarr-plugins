@@ -38,25 +38,29 @@ const isLoudnormMeasuredValues = (value: unknown): value is TwoPassLoudness.Loud
   );
 };
 
+export class LoudnormReportParser {
+  public parse(report: string): TwoPassLoudness.LoudnormMeasuredValues[] {
+    const lines = report.split(/\r?\n/);
+    const values: TwoPassLoudness.LoudnormMeasuredValues[] = [];
+
+    lines.forEach((line, index) => {
+      if (!line.includes("Parsed_loudnorm")) return;
+      const jsonBlock = findJsonBlockAfter(lines, index);
+      if (!jsonBlock) return;
+      const parsed = JSON.parse(jsonBlock) as unknown;
+      if (!isLoudnormMeasuredValues(parsed)) {
+        throw new Error("Parsed loudnorm JSON did not contain expected measured values.");
+      }
+      values.push(parsed);
+    });
+
+    return values;
+  }
+}
+
 export const parseLoudnormValuesFromReport = (
   report: string
-): TwoPassLoudness.LoudnormMeasuredValues[] => {
-  const lines = report.split(/\r?\n/);
-  const values: TwoPassLoudness.LoudnormMeasuredValues[] = [];
-
-  lines.forEach((line, index) => {
-    if (!line.includes("Parsed_loudnorm")) return;
-    const jsonBlock = findJsonBlockAfter(lines, index);
-    if (!jsonBlock) return;
-    const parsed = JSON.parse(jsonBlock) as unknown;
-    if (!isLoudnormMeasuredValues(parsed)) {
-      throw new Error("Parsed loudnorm JSON did not contain expected measured values.");
-    }
-    values.push(parsed);
-  });
-
-  return values;
-};
+): TwoPassLoudness.LoudnormMeasuredValues[] => new LoudnormReportParser().parse(report);
 
 const loudnormAnalysisExpression = (
   policy: TwoPassLoudness.Policy
@@ -71,71 +75,88 @@ const loudnormApplyExpression = (
   `measured_i=${measured.input_i}:measured_lra=${measured.input_lra}:measured_tp=${measured.input_tp}:` +
   `measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}`;
 
+export class LoudnormCommandBuilder {
+  public buildFirstPassArgs(params: {
+    audioStreams: readonly TwoPassLoudness.AudioStream[];
+    policy: TwoPassLoudness.Policy;
+    nullOutput?: string;
+  }): Ffmpeg.Argv {
+    const labels = params.audioStreams.map((_, index) => `ln${index}`);
+    const filterComplex = params.audioStreams
+      .map(
+        (stream, index) =>
+          `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`
+      )
+      .join(";");
+
+    return [
+      "<io>",
+      "-filter_complex",
+      filterComplex,
+      ...labels.flatMap((label) => ["-map", `[${label}]`]),
+      "-f",
+      "null",
+      params.nullOutput ?? "NUL",
+      "-map",
+      "0",
+      "-c",
+      "copy",
+      "-metadata",
+      `${normalisationStageTag}=FirstPassComplete`,
+    ];
+  }
+
+  public buildSecondPassArgs(params: {
+    audioStreams: readonly TwoPassLoudness.AudioStream[];
+    measuredValues: readonly TwoPassLoudness.LoudnormMeasuredValues[];
+    policy: TwoPassLoudness.Policy;
+  }): Ffmpeg.Argv {
+    const labels = params.audioStreams.map((_, index) => `ln${index}`);
+    const filterComplex = params.audioStreams
+      .map(
+        (stream, index) =>
+          `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`
+      )
+      .join(";");
+    const appendedAudioCodecArgs = params.audioStreams.flatMap((stream, index) => {
+      const outputAudioIndex = params.audioStreams.length + index;
+      return [
+        `-c:a:${outputAudioIndex}`,
+        params.policy.outputCodec,
+        `-b:a:${outputAudioIndex}`,
+        params.policy.outputBitrate,
+        `-metadata:s:a:${outputAudioIndex}`,
+        `title=Loudness normalized ${stream.codecName}`,
+      ];
+    });
+
+    return [
+      "-y",
+      "<io>",
+      "-filter_complex",
+      filterComplex,
+      "-map",
+      "0",
+      ...labels.flatMap((label) => ["-map", `[${label}]`]),
+      "-c",
+      "copy",
+      ...appendedAudioCodecArgs,
+      "-metadata",
+      `${normalisationStageTag}=Complete`,
+    ];
+  }
+}
+
 export const buildFirstPassArgs = (params: {
   audioStreams: readonly TwoPassLoudness.AudioStream[];
   policy: TwoPassLoudness.Policy;
   nullOutput?: string;
-}): Ffmpeg.Argv => {
-  const labels = params.audioStreams.map((_, index) => `ln${index}`);
-  const filterComplex = params.audioStreams
-    .map((stream, index) => `[0:${stream.streamIndex}]${loudnormAnalysisExpression(params.policy)}[${labels[index]}]`)
-    .join(";");
-
-  return [
-    "<io>",
-    "-filter_complex",
-    filterComplex,
-    ...labels.flatMap((label) => ["-map", `[${label}]`]),
-    "-f",
-    "null",
-    params.nullOutput ?? "NUL",
-    "-map",
-    "0",
-    "-c",
-    "copy",
-    "-metadata",
-    `${normalisationStageTag}=FirstPassComplete`,
-  ];
-};
+}): Ffmpeg.Argv => new LoudnormCommandBuilder().buildFirstPassArgs(params);
 
 export const buildSecondPassArgs = (params: {
   audioStreams: readonly TwoPassLoudness.AudioStream[];
   measuredValues: readonly TwoPassLoudness.LoudnormMeasuredValues[];
   policy: TwoPassLoudness.Policy;
-}): Ffmpeg.Argv => {
-  const labels = params.audioStreams.map((_, index) => `ln${index}`);
-  const filterComplex = params.audioStreams
-    .map(
-      (stream, index) =>
-        `[0:${stream.streamIndex}]${loudnormApplyExpression(params.policy, params.measuredValues[index])}[${labels[index]}]`
-    )
-    .join(";");
-  const appendedAudioCodecArgs = params.audioStreams.flatMap((stream, index) => {
-    const outputAudioIndex = params.audioStreams.length + index;
-    return [
-      `-c:a:${outputAudioIndex}`,
-      params.policy.outputCodec,
-      `-b:a:${outputAudioIndex}`,
-      params.policy.outputBitrate,
-      `-metadata:s:a:${outputAudioIndex}`,
-      `title=Loudness normalized ${stream.codecName}`,
-    ];
-  });
-
-  return [
-    "-y",
-    "<io>",
-    "-filter_complex",
-    filterComplex,
-    "-map",
-    "0",
-    ...labels.flatMap((label) => ["-map", `[${label}]`]),
-    "-c",
-    "copy",
-    ...appendedAudioCodecArgs,
-    "-metadata",
-    `${normalisationStageTag}=Complete`,
-  ];
-};
+}): Ffmpeg.Argv => new LoudnormCommandBuilder().buildSecondPassArgs(params);
 
 export const renderPreset = (args: Ffmpeg.Argv): string => renderArguments(args);

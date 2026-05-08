@@ -45,78 +45,98 @@ export interface StreamAnalysisResult {
   decisions: StreamDecision[];
 }
 
+export class ReencodeStreamAnalyzer {
+  public constructor(
+    private readonly targetResolution: Media.VideoResolutionTarget,
+    private readonly forceConform: boolean,
+    private readonly targetContainer: Media.OutputContainer
+  ) {}
+
+  public analyze(streams: readonly Tdarr.FileStream[]): StreamAnalysisResult {
+    const result: StreamAnalysisResult = {
+      primaryVideoStreamIndex: -1,
+      primaryVideoCodec: "",
+      passthroughStreamIndexes: [],
+      mappingChanged: false,
+      resizeRequired: false,
+      decisions: [],
+    };
+
+    streams.forEach((stream, index) => {
+      const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
+      if (isUnsupportedStream(stream)) {
+        result.decisions.push({ kind: "drop-unsupported", streamIndex: index, codecName });
+        result.mappingChanged = true;
+        return;
+      }
+
+      if (this.shouldDropForContainerConformance(stream)) {
+        result.decisions.push({
+          kind: "drop-container-conformance",
+          streamIndex: index,
+          codecName,
+        });
+        result.mappingChanged = true;
+        return;
+      }
+
+      if (
+        this.forceConform &&
+        this.targetContainer === "mkv" &&
+        normalize(stream.codec_type) === "data"
+      ) {
+        result.decisions.push({ kind: "drop-data-conformance", streamIndex: index, codecName });
+        result.mappingChanged = true;
+        return;
+      }
+
+      if (normalize(stream.codec_type) === "video") {
+        if (isDisposableVideoStream(stream)) {
+          result.decisions.push({ kind: "drop-disposable-video", streamIndex: index, codecName });
+          result.mappingChanged = true;
+          return;
+        }
+        if (result.primaryVideoStreamIndex === -1) {
+          result.primaryVideoStreamIndex = index;
+          result.primaryVideoCodec = normalize(stream.codec_name);
+          result.resizeRequired = streamNeedsResize(stream, this.targetResolution);
+          if (index !== 0) {
+            result.decisions.push({ kind: "promote-primary-video", streamIndex: index, codecName });
+            result.mappingChanged = true;
+          }
+          return;
+        }
+        result.decisions.push({ kind: "drop-secondary-video", streamIndex: index, codecName });
+        result.mappingChanged = true;
+        return;
+      }
+
+      result.passthroughStreamIndexes.push(index);
+    });
+
+    return result;
+  }
+
+  private shouldDropForContainerConformance(stream: Tdarr.FileStream): boolean {
+    return (
+      this.forceConform &&
+      typeof stream.codec_name === "string" &&
+      shouldDropForContainerConformance(this.targetContainer, stream.codec_name)
+    );
+  }
+}
+
 export const analyzeStreams = (params: {
   streams: readonly Tdarr.FileStream[];
   targetResolution: Media.VideoResolutionTarget;
   forceConform: boolean;
   targetContainer: Media.OutputContainer;
 }): StreamAnalysisResult => {
-  const result: StreamAnalysisResult = {
-    primaryVideoStreamIndex: -1,
-    primaryVideoCodec: "",
-    passthroughStreamIndexes: [],
-    mappingChanged: false,
-    resizeRequired: false,
-    decisions: [],
-  };
-
-  params.streams.forEach((stream, index) => {
-    const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
-    if (isUnsupportedStream(stream)) {
-      result.decisions.push({ kind: "drop-unsupported", streamIndex: index, codecName });
-      result.mappingChanged = true;
-      return;
-    }
-
-    if (
-      params.forceConform &&
-      typeof stream.codec_name === "string" &&
-      shouldDropForContainerConformance(params.targetContainer, stream.codec_name)
-    ) {
-      result.decisions.push({
-        kind: "drop-container-conformance",
-        streamIndex: index,
-        codecName,
-      });
-      result.mappingChanged = true;
-      return;
-    }
-
-    if (
-      params.forceConform &&
-      params.targetContainer === "mkv" &&
-      normalize(stream.codec_type) === "data"
-    ) {
-      result.decisions.push({ kind: "drop-data-conformance", streamIndex: index, codecName });
-      result.mappingChanged = true;
-      return;
-    }
-
-    if (normalize(stream.codec_type) === "video") {
-      if (isDisposableVideoStream(stream)) {
-        result.decisions.push({ kind: "drop-disposable-video", streamIndex: index, codecName });
-        result.mappingChanged = true;
-        return;
-      }
-      if (result.primaryVideoStreamIndex === -1) {
-        result.primaryVideoStreamIndex = index;
-        result.primaryVideoCodec = normalize(stream.codec_name);
-        result.resizeRequired = streamNeedsResize(stream, params.targetResolution);
-        if (index !== 0) {
-          result.decisions.push({ kind: "promote-primary-video", streamIndex: index, codecName });
-          result.mappingChanged = true;
-        }
-        return;
-      }
-      result.decisions.push({ kind: "drop-secondary-video", streamIndex: index, codecName });
-      result.mappingChanged = true;
-      return;
-    }
-
-    result.passthroughStreamIndexes.push(index);
-  });
-
-  return result;
+  return new ReencodeStreamAnalyzer(
+    params.targetResolution,
+    params.forceConform,
+    params.targetContainer
+  ).analyze(params.streams);
 };
 
 export const streamMapTokens = (streamIndexes: readonly number[]): Ffmpeg.Argv =>

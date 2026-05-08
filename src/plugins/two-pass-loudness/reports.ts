@@ -66,50 +66,65 @@ const expectReportText = (value: unknown): string => {
   return (value as { text: string }).text;
 };
 
+export class HttpTdarrReportClient implements TwoPassLoudness.TdarrReportClient {
+  private readonly fetchImpl: FetchLike;
+  private readonly serverUrl: string;
+  private readonly apiKey?: string;
+
+  public constructor(params: {
+    policy: TwoPassLoudness.Policy;
+    host: Tdarr.HostInfo;
+    fetchImpl?: FetchLike;
+  }) {
+    const fetchImpl = params.fetchImpl ?? globalThis.fetch;
+    if (!fetchImpl) {
+      throw new Error("Global fetch is unavailable; cannot read Tdarr reports.");
+    }
+    this.fetchImpl = fetchImpl;
+    this.serverUrl = getServerUrl(params.policy);
+    this.apiKey = params.host.configVars?.config?.apiKey;
+  }
+
+  public async listFootprintReports(file: Tdarr.MediaMetadata): Promise<string[]> {
+    const response = await postJson(
+      this.fetchImpl,
+      `${this.serverUrl}/api/v2/list-footprintId-reports`,
+      {
+        data: {
+          footprintId: file.footprintId,
+        },
+      },
+      this.apiKey
+    );
+    return expectStringArray(response).sort((left, right) => {
+      const leftJob = parseJobName(left);
+      const rightJob = parseJobName(right);
+      return rightJob.start - leftJob.start;
+    });
+  }
+
+  public async readJobFile(
+    file: Tdarr.MediaMetadata,
+    jobFileId: string
+  ): Promise<string> {
+    const response = await postJson(
+      this.fetchImpl,
+      `${this.serverUrl}/api/v2/read-job-file`,
+      {
+        data: {
+          footprintId: file.footprintId,
+          jobId: parseJobName(jobFileId).jobId,
+          jobFileId,
+        },
+      },
+      this.apiKey
+    );
+    return expectReportText(response);
+  }
+}
+
 export const createTdarrReportClient = (params: {
   policy: TwoPassLoudness.Policy;
   host: Tdarr.HostInfo;
   fetchImpl?: FetchLike;
-}): TwoPassLoudness.TdarrReportClient => {
-  const fetchImpl = params.fetchImpl ?? globalThis.fetch;
-  if (!fetchImpl) {
-    throw new Error("Global fetch is unavailable; cannot read Tdarr reports.");
-  }
-  const serverUrl = getServerUrl(params.policy);
-  const apiKey = params.host.configVars?.config?.apiKey;
-
-  return {
-    async listFootprintReports(file) {
-      const response = await postJson(
-        fetchImpl,
-        `${serverUrl}/api/v2/list-footprintId-reports`,
-        {
-          data: {
-            footprintId: file.footprintId,
-          },
-        },
-        apiKey
-      );
-      return expectStringArray(response).sort((left, right) => {
-        const leftJob = parseJobName(left);
-        const rightJob = parseJobName(right);
-        return rightJob.start - leftJob.start;
-      });
-    },
-    async readJobFile(file, jobFileId) {
-      const response = await postJson(
-        fetchImpl,
-        `${serverUrl}/api/v2/read-job-file`,
-        {
-          data: {
-            footprintId: file.footprintId,
-            jobId: parseJobName(jobFileId).jobId,
-            jobFileId,
-          },
-        },
-        apiKey
-      );
-      return expectReportText(response);
-    },
-  };
-};
+}): TwoPassLoudness.TdarrReportClient => new HttpTdarrReportClient(params);
