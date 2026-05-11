@@ -458,6 +458,14 @@ var analyzeStreams = (params) => {
       result.mappingChanged = true;
       return;
     }
+    const codecType = normalize(stream.codec_type);
+    if (codecType === "subtitle" && typeof stream.codec_name === "string" && getContainerConformanceDrops(params.targetContainer, stream.codec_name)) {
+      params.pushLog(
+        `Dropping subtitle stream 0:${index} because codec ${stream.codec_name} is not supported in ${params.targetContainer}.`
+      );
+      result.mappingChanged = true;
+      return;
+    }
     if (params.forceConform && typeof stream.codec_name === "string" && getContainerConformanceDrops(params.targetContainer, stream.codec_name)) {
       params.pushLog(
         `Dropping stream 0:${index} because codec ${stream.codec_name} is not container-conformant for ${params.targetContainer}.`
