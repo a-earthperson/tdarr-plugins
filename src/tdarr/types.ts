@@ -27,12 +27,6 @@ export namespace Media {
     budget?: BitrateBudget;
     reason?: string;
   }
-
-  export interface ProcessingContext {
-    targetContainer: OutputContainer;
-    durationSeconds: number;
-    bitrate: BitrateBudget;
-  }
 }
 
 export namespace Tdarr {
