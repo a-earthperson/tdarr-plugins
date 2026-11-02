@@ -462,6 +462,7 @@ var normalizeInputs = (rawInputs, response) => {
     try_use_gpu: parseBoolean(rawInputs.try_use_gpu, true),
     bitrate_cutoff: Math.max(0, parseNumber(rawInputs.bitrate_cutoff, 0)),
     enable_10bit: parseBoolean(rawInputs.enable_10bit, false),
+    nvenc_cpu_scaling: parseBoolean(rawInputs.nvenc_cpu_scaling, false),
     bframes_enabled: parseBoolean(rawInputs.bframes_enabled, false),
     bframes_value: Math.max(0, Math.round(parseNumber(rawInputs.bframes_value, 5))),
     force_conform: parseBoolean(rawInputs.force_conform, false),
@@ -763,6 +764,16 @@ var details = () => ({
       tooltip: "Specify if output file should be 10bit."
     },
     {
+      name: "nvenc_cpu_scaling",
+      type: "boolean",
+      defaultValue: false,
+      inputUI: {
+        type: "dropdown",
+        options: ["false", "true"]
+      },
+      tooltip: "NVENC only. Decode with NVDEC but download frames and scale on the CPU (swscale bicubic) instead of scale_cuda. Measured ~4-7% lower bitrate at equal quality, but makes the encode CPU-bound and moves decoded frames over PCIe. When false, frames stay on the GPU."
+    },
+    {
       name: "bframes_enabled",
       type: "boolean",
       defaultValue: false,
@@ -876,7 +887,7 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     ...streamResult.passthroughStreamIndexes
   ];
   const mapTokens = streamMapTokens(mappedStreamIndexes);
-  const nvdecOptions = isNvencEncoder(encoder.encoder) && normalizedInputs.target_quality > 0 ? { softwareFrames: true } : void 0;
+  const nvdecOptions = isNvencEncoder(encoder.encoder) && normalizedInputs.nvenc_cpu_scaling ? { softwareFrames: true } : void 0;
   const nvdecPreset = isNvencEncoder(encoder.encoder) ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
   const cudaFrames = /-hwaccel_output_format\s+cuda\b/.test(nvdecPreset);
   let resolutionFilter = getResolutionFilter(cudaFrames, normalizedInputs.target_resolution);
