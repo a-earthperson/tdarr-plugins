@@ -239,7 +239,33 @@ var bitrateTokens = (input) => [
   "-bufsize",
   normalizeBitrate(input.currentBitrate)
 ];
+var isQsvEncoder = (encoder) => encoder === "hevc_qsv" || encoder === "h264_qsv";
+var qsvGopTokens = () => [
+  "-b_strategy",
+  "1",
+  "-bf",
+  "7",
+  "-adaptive_i",
+  "1",
+  "-adaptive_b",
+  "1",
+  "-g",
+  "256"
+];
+var qsvIcqTokens = (quality) => [
+  "-preset",
+  "veryslow",
+  "-global_quality",
+  String(quality),
+  ...qsvGopTokens()
+];
 var getEncoderRateControl = (input) => {
+  if (isQsvEncoder(input.encoder) && input.icqQuality > 0) {
+    return {
+      tokens: qsvIcqTokens(input.icqQuality),
+      description: `QSV ICQ ${input.icqQuality} (veryslow, B-pyramid)`
+    };
+  }
   const base = bitrateTokens(input);
   if (input.encoder === "hevc_nvenc" || input.encoder === "h264_nvenc") {
     return {
@@ -257,7 +283,7 @@ var getEncoderRateControl = (input) => {
       description: "NVENC VBR HQ with CQ 19"
     };
   }
-  if (input.encoder === "hevc_qsv" || input.encoder === "h264_qsv") {
+  if (isQsvEncoder(input.encoder)) {
     return {
       tokens: [
         "-preset",
@@ -267,16 +293,7 @@ var getEncoderRateControl = (input) => {
         "1",
         "-look_ahead_depth",
         "40",
-        "-b_strategy",
-        "1",
-        "-bf",
-        "7",
-        "-adaptive_i",
-        "1",
-        "-adaptive_b",
-        "1",
-        "-g",
-        "256"
+        ...qsvGopTokens()
       ],
       description: "QSV EncTools quality (veryslow, B-pyramid, lookahead 40)"
     };
@@ -291,6 +308,82 @@ var getEncoderRateControl = (input) => {
     tokens: base,
     description: "generic bitrate mode"
   };
+};
+
+// src/encoder/qualityEstimate.ts
+var QUALITY_SAMPLE_COUNT = 8;
+var QUALITY_SAMPLE_SECONDS = 10;
+var STATS_VIDEO_SIZE_REGEX = /video:\s*([\d.]+)\s*(KiB|kB|MiB|MB)\b/g;
+var runFfmpeg = (childProcess, ffmpegPath, args) => new Promise((resolve) => {
+  const options = { maxBuffer: 64 * 1024 * 1024 };
+  const done = (error, _stdout, stderr) => resolve({ ok: !error, stderr: String(stderr ?? ""), error });
+  if (typeof childProcess.execFile === "function") {
+    childProcess.execFile(ffmpegPath, args, options, done);
+    return;
+  }
+  childProcess.exec(`${ffmpegPath} ${renderArguments(args)}`, options, done);
+});
+var parseEncodedVideoBytes = (stderr) => {
+  let bytes = -1;
+  for (const match of stderr.matchAll(STATS_VIDEO_SIZE_REGEX)) {
+    const scale = match[2].startsWith("M") ? 1024 * 1024 : 1024;
+    bytes = Number(match[1]) * scale;
+  }
+  return Number.isFinite(bytes) ? bytes : -1;
+};
+var getSampleWindows = (durationSeconds) => {
+  if (durationSeconds <= QUALITY_SAMPLE_COUNT * QUALITY_SAMPLE_SECONDS * 1.5) {
+    return [{ start: 0, seconds: durationSeconds, whole: true }];
+  }
+  return Array.from({ length: QUALITY_SAMPLE_COUNT }, (_, i) => ({
+    start: Math.max(0, durationSeconds * (i + 0.5) / QUALITY_SAMPLE_COUNT - QUALITY_SAMPLE_SECONDS / 2),
+    seconds: QUALITY_SAMPLE_SECONDS,
+    whole: false
+  }));
+};
+var estimateQsvIcqBitrate = async (params) => {
+  const { childProcess, ffmpegPath, filePath, durationSeconds, videoStreamIndex, encoder, icqQuality, extraTokens } = params;
+  if (typeof filePath !== "string" || filePath === "") {
+    return { valid: false, reason: "input file path is unavailable" };
+  }
+  let totalBytes = 0;
+  let totalSeconds = 0;
+  for (const window of getSampleWindows(durationSeconds)) {
+    const args = [
+      "-hide_banner",
+      "-nostdin",
+      "-nostats",
+      "-loglevel",
+      "info",
+      ...tokenizeArguments(encoder.inputArgs ?? ""),
+      ...window.whole ? [] : ["-ss", window.start.toFixed(3), "-t", String(window.seconds)],
+      "-i",
+      filePath,
+      "-map",
+      `0:${videoStreamIndex}`,
+      "-an",
+      "-sn",
+      "-dn",
+      "-c:v",
+      encoder.encoder,
+      ...tokenizeArguments(encoder.outputArgs ?? ""),
+      ...qsvIcqTokens(icqQuality),
+      ...extraTokens,
+      "-f",
+      "null",
+      "-"
+    ];
+    const result = await runFfmpeg(childProcess, ffmpegPath, args);
+    const bytes = result.ok ? parseEncodedVideoBytes(result.stderr) : -1;
+    if (bytes < 0) {
+      const detail = result.ok ? "no size in ffmpeg stats" : String(result.error?.message ?? "ffmpeg failed").split("\n")[0];
+      return { valid: false, reason: `sample at ${window.start.toFixed(1)}s failed: ${detail}` };
+    }
+    totalBytes += bytes;
+    totalSeconds += Math.min(window.seconds, durationSeconds - window.start);
+  }
+  if (totalSeconds <= 0) return { valid: false, reason: "sampled duration is zero" };
+  return { valid: true, bitrate: totalBytes * 8 / totalSeconds, sampledSeconds: totalSeconds };
 };
 
 // src/policy/transcodePolicy.ts
@@ -315,6 +408,7 @@ var parseExcludedGpuIds = (value) => {
   if (typeof value !== "string") return [];
   const unique = /* @__PURE__ */ new Set();
   for (const entry of value.split(",")) {
+    if (entry.trim() === "") continue;
     const gpuId = Number(entry.trim());
     if (Number.isInteger(gpuId) && gpuId >= 0) unique.add(gpuId);
   }
@@ -329,6 +423,7 @@ var normalizeInputs = (rawInputs, response) => {
     container,
     target_resolution,
     target_bitrate_multiplier: Math.max(0, parseNumber(rawInputs.target_bitrate_multiplier, 0.5)),
+    target_quality: Math.min(51, Math.max(0, Math.round(parseNumber(rawInputs.target_quality, 0)))),
     try_use_gpu: parseBoolean(rawInputs.try_use_gpu, true),
     bitrate_cutoff: Math.max(0, parseNumber(rawInputs.bitrate_cutoff, 0)),
     enable_10bit: parseBoolean(rawInputs.enable_10bit, false),
@@ -339,7 +434,7 @@ var normalizeInputs = (rawInputs, response) => {
     exclude_gpu_ids: parseExcludedGpuIds(rawInputs.exclude_gpus)
   };
   if (normalized.target_bitrate_multiplier === 0) {
-    response.infoLog += "target_bitrate_multiplier resolved to 0. No bitrate reduction target is configured.\n";
+    response.infoLog += normalized.target_quality > 0 ? "target_bitrate_multiplier resolved to 0. Quality target runs without a bitrate ceiling.\n" : "target_bitrate_multiplier resolved to 0. No bitrate reduction target is configured.\n";
   }
   return normalized;
 };
@@ -359,7 +454,7 @@ var resolveDurationSeconds = (file, response) => {
   response.infoLog += "Unable to determine media duration. Skipping transcode.\n";
   return { duration: 0, valid: false };
 };
-var calculateBitrates = (file, durationSeconds, multiplier, response) => {
+var calculateBitrates = (file, durationSeconds, multiplier, response, allowNoTarget = false) => {
   const fileSizeMb = typeof file.file_size === "number" ? file.file_size : Number(file.file_size);
   if (!isFiniteNonNegative(fileSizeMb) || fileSizeMb <= 0) {
     response.infoLog += "Unable to calculate bitrate from file_size. Skipping transcode.\n";
@@ -383,6 +478,15 @@ var calculateBitrates = (file, durationSeconds, multiplier, response) => {
     };
   }
   const targetBitrate = multiplier > 1 ? multiplier * 1e3 : currentBitrate * multiplier;
+  if (allowNoTarget && targetBitrate === 0) {
+    return {
+      currentBitrate,
+      targetBitrate: 0,
+      minimumBitrate: 0,
+      maximumBitrate: 0,
+      valid: true
+    };
+  }
   if (!Number.isFinite(targetBitrate) || targetBitrate <= 0) {
     response.infoLog += "Computed target bitrate is invalid. Skipping transcode.\n";
     return {
@@ -563,7 +667,16 @@ var details = () => ({
       inputUI: {
         type: "text"
       },
-      tooltip: "Specify the multiplier to use to calculate the target bitrate. Values <= 1 are treated as multipliers; values > 1 are treated as absolute target bitrate in kbps. Default of 0.5 will roughly half the size of the file."
+      tooltip: "Specify the multiplier to use to calculate the target bitrate. Values <= 1 are treated as multipliers; values > 1 are treated as absolute target bitrate in kbps. Default of 0.5 will roughly half the size of the file. When target_quality is set, this becomes the bitrate ceiling (0 = no ceiling)."
+    },
+    {
+      name: "target_quality",
+      type: "number",
+      defaultValue: 0,
+      inputUI: {
+        type: "text"
+      },
+      tooltip: "QSV only. Constant-quality target (ICQ, 1-51, lower = better/larger; 0 disables). The plugin sample-encodes the file at this quality; if the estimated bitrate is at or below the target_bitrate_multiplier bitrate it encodes with ICQ, otherwise it falls back to VBR at that bitrate as a ceiling."
     },
     {
       name: "target_resolution",
@@ -667,6 +780,7 @@ var createResponse = () => ({
 });
 var defaultChildProcess = {
   exec: import_node_child_process.exec,
+  execFile: import_node_child_process.execFile,
   execSync: import_node_child_process.execSync
 };
 var createPlugin = (options) => async (file, librarySettings, inputs, otherArguments) => {
@@ -692,11 +806,12 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     file,
     durationResult.duration,
     normalizedInputs.target_bitrate_multiplier,
-    response
+    response,
+    normalizedInputs.target_quality > 0
   );
   if (!bitrateResult.valid) return response;
-  if (bitrateResult.currentBitrate <= normalizedInputs.bitrate_cutoff) {
-    pushLog(`Current bitrate is below cutoff ${normalizedInputs.bitrate_cutoff}.`);
+  if (bitrateResult.currentBitrate <= normalizedInputs.bitrate_cutoff * 1e3) {
+    pushLog(`Current bitrate is below cutoff ${normalizedInputs.bitrate_cutoff} kbps.`);
     return response;
   }
   const encoder = await selectEncoder({
@@ -735,14 +850,7 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
   }
   const resolutionFilter = getResolutionFilter(encoder.encoder, normalizedInputs.target_resolution);
   extraTokens = upsertVideoFilterTokens(extraTokens, resolutionFilter);
-  const rateControl = getEncoderRateControl({
-    encoder: encoder.encoder,
-    currentBitrate: bitrateResult.currentBitrate,
-    targetBitrate: bitrateResult.targetBitrate,
-    maximumBitrate: bitrateResult.maximumBitrate
-  });
   pushLog(`Encoder selected as ${encoder.encoder}.`);
-  pushLog(`Encoder rate control = ${rateControl.description}.`);
   pushLog(`Container for output selected as ${targetContainer}.`);
   pushLog(`Resolution target selected as ${normalizedInputs.target_resolution}.`);
   pushLog(`Current bitrate = ${bitrateResult.currentBitrate}`);
@@ -758,10 +866,53 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     pushLog(
       `File video is already ${normalizedInputs.target_codec} but stream mapping/container needs normalization. Remuxing.`
     );
-    response.preset = renderArguments(["<io>", ...mapTokens, "-c", "copy", ...extraTokens]);
+    response.preset = renderArguments(["<io>", ...mapTokens, "-c", "copy"]);
     response.processFile = true;
     return response;
   }
+  let icqQuality = 0;
+  if (normalizedInputs.target_quality > 0 && !isQsvEncoder(encoder.encoder)) {
+    if (bitrateResult.targetBitrate <= 0) {
+      pushLog(`target_quality is only implemented for QSV and no target bitrate is set for ${encoder.encoder}. Skipping transcode.`);
+      return response;
+    }
+    pushLog(`target_quality is only implemented for QSV; ${encoder.encoder} uses bitrate mode.`);
+  } else if (normalizedInputs.target_quality > 0 && bitrateResult.targetBitrate <= 0) {
+    icqQuality = normalizedInputs.target_quality;
+    pushLog(`No bitrate ceiling configured; using ICQ ${icqQuality} unconditionally.`);
+  } else if (normalizedInputs.target_quality > 0) {
+    const ceiling = bitrateResult.targetBitrate;
+    const estimate = await estimateQsvIcqBitrate({
+      childProcess,
+      ffmpegPath: otherArguments?.ffmpegPath ?? "ffmpeg",
+      filePath: file.file,
+      durationSeconds: durationResult.duration,
+      videoStreamIndex: streamResult.primaryVideoStreamIndex,
+      encoder,
+      icqQuality: normalizedInputs.target_quality,
+      extraTokens
+    });
+    if (!estimate.valid) {
+      pushLog(`ICQ ${normalizedInputs.target_quality} bitrate estimate failed (${estimate.reason}); using bitrate ceiling.`);
+    } else {
+      const estimateKbps = Math.round(estimate.bitrate / 1e3);
+      const ceilingKbps = Math.round(ceiling / 1e3);
+      if (estimate.bitrate <= ceiling) {
+        icqQuality = normalizedInputs.target_quality;
+        pushLog(`ICQ ${icqQuality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, within ceiling ${ceilingKbps} kbps. Using ICQ.`);
+      } else {
+        pushLog(`ICQ ${normalizedInputs.target_quality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, above ceiling ${ceilingKbps} kbps. Using VBR at ceiling.`);
+      }
+    }
+  }
+  const rateControl = getEncoderRateControl({
+    encoder: encoder.encoder,
+    icqQuality,
+    currentBitrate: bitrateResult.currentBitrate,
+    targetBitrate: bitrateResult.targetBitrate,
+    maximumBitrate: bitrateResult.maximumBitrate
+  });
+  pushLog(`Encoder rate control = ${rateControl.description}.`);
   const prefixTokens = [];
   if (encoder.encoder.includes("nvenc")) {
     prefixTokens.push(...tokenizeArguments(runtime.getNvdecHwaccelPreset(file)));
