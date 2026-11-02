@@ -75,6 +75,7 @@ ${String(error)}
   if (selectedGpu >= 0) {
     return {
       ...nvencDevice,
+      gpuName: gpuNames[selectedGpu],
       inputArgs: `-hwaccel_device ${selectedGpu}`,
       outputArgs: `-gpu ${selectedGpu}`
     };
@@ -200,21 +201,21 @@ var getSoftwareTenBitFormat = (encoder) => {
   if (encoder.includes("qsv") || encoder.includes("amf") || encoder.includes("vaapi")) return "p010le";
   return "yuv420p10le";
 };
-var getTenBitTokens = (encoder, runtime, file) => {
+var getTenBitTokens = (encoder, runtime, file, nvdecOptions) => {
   if (encoder.includes("nvenc")) {
-    return tokenizeArguments(runtime.getNvenc10BitFormatArg(file));
+    return tokenizeArguments(runtime.getNvenc10BitFormatArg(file, nvdecOptions));
   }
   const tokens = ["-pix_fmt", getSoftwareTenBitFormat(encoder)];
   if (encoder.startsWith("hevc_")) tokens.push("-profile:v", "main10");
   return tokens;
 };
-var getResolutionFilter = (encoder, targetResolution) => {
+var getResolutionFilter = (useCudaScaler, targetResolution) => {
   if (targetResolution === "none") return "";
   const target = resolutionTargets[targetResolution];
   if (!target) return "";
   const scaleFactor = `min(1,if(gte(iw,ih),min(${target.landscape.width}/iw,${target.landscape.height}/ih),min(${target.portrait.width}/iw,${target.portrait.height}/ih)))`;
-  const filterName = encoder.includes("nvenc") ? "scale_cuda" : "scale";
-  return `${filterName}=w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
+  const dimensions = `w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
+  return useCudaScaler ? `scale_cuda=${dimensions}:interp_algo=bicubic` : `scale=${dimensions}`;
 };
 var upsertVideoFilterTokens = (tokens, videoFilter) => {
   if (!videoFilter) return [...tokens];
@@ -259,11 +260,45 @@ var qsvIcqTokens = (quality) => [
   String(quality),
   ...qsvGopTokens()
 ];
+var isNvencEncoder = (encoder) => encoder === "hevc_nvenc" || encoder === "h264_nvenc";
+var NVENC_CQ_OFFSET_FROM_QSV_ICQ = 7;
+var nvencCqFromTargetQuality = (targetQuality) => Math.min(51, Math.max(1, targetQuality + NVENC_CQ_OFFSET_FROM_QSV_ICQ));
+var nvencCqTokens = (input) => [
+  "-preset",
+  "p7",
+  "-tune",
+  "hq",
+  "-multipass",
+  "fullres",
+  "-rc:v",
+  "vbr",
+  "-cq:v",
+  String(input.nvencCq),
+  "-b:v",
+  "0",
+  ...input.targetBitrate > 0 ? ["-maxrate", normalizeBitrate(input.targetBitrate), "-bufsize", normalizeBitrate(input.targetBitrate * 2)] : [],
+  "-rc-lookahead:v",
+  "32",
+  "-spatial_aq:v",
+  "1",
+  "-temporal_aq:v",
+  "1",
+  ...input.bframes >= 2 ? ["-b_ref_mode", "middle"] : [],
+  "-g",
+  "256"
+];
 var getEncoderRateControl = (input) => {
   if (isQsvEncoder(input.encoder) && input.icqQuality > 0) {
     return {
       tokens: qsvIcqTokens(input.icqQuality),
       description: `QSV ICQ ${input.icqQuality} (veryslow, B-pyramid)`
+    };
+  }
+  if (isNvencEncoder(input.encoder) && input.nvencCq > 0) {
+    const ceiling = input.targetBitrate > 0 ? `, ceiling ${Math.round(input.targetBitrate / 1e3)} kbps` : "";
+    return {
+      tokens: nvencCqTokens(input),
+      description: `NVENC CQ ${input.nvencCq} (p7 hq multipass${ceiling})`
     };
   }
   const base = bitrateTokens(input);
@@ -676,7 +711,7 @@ var details = () => ({
       inputUI: {
         type: "text"
       },
-      tooltip: "QSV only. Constant-quality target (ICQ, 1-51, lower = better/larger; 0 disables). The plugin sample-encodes the file at this quality; if the estimated bitrate is at or below the target_bitrate_multiplier bitrate it encodes with ICQ, otherwise it falls back to VBR at that bitrate as a ceiling."
+      tooltip: "QSV and NVENC. Constant-quality target in QSV ICQ units (1-51, lower = better/larger; 0 disables). QSV: the plugin sample-encodes the file at this quality; if the estimated bitrate is at or below the target_bitrate_multiplier bitrate it encodes with ICQ, otherwise it falls back to VBR at that bitrate as a ceiling. NVENC: encodes with CQ = target_quality + 7 (calibrated to equal XPSNR) and uses the target_bitrate_multiplier bitrate as a VBV maxrate ceiling."
     },
     {
       name: "target_resolution",
@@ -841,14 +876,19 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     ...streamResult.passthroughStreamIndexes
   ];
   const mapTokens = streamMapTokens(mappedStreamIndexes);
+  const nvdecOptions = isNvencEncoder(encoder.encoder) && normalizedInputs.target_quality > 0 ? { softwareFrames: true } : void 0;
+  const nvdecPreset = isNvencEncoder(encoder.encoder) ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
+  const cudaFrames = /-hwaccel_output_format\s+cuda\b/.test(nvdecPreset);
+  let resolutionFilter = getResolutionFilter(cudaFrames, normalizedInputs.target_resolution);
   let extraTokens = [];
-  if (normalizedInputs.enable_10bit) {
-    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file)];
+  if (normalizedInputs.enable_10bit && cudaFrames && resolutionFilter) {
+    resolutionFilter += ":format=p010le";
+  } else if (normalizedInputs.enable_10bit) {
+    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file, nvdecOptions)];
   }
   if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
     extraTokens.push("-bf", String(normalizedInputs.bframes_value));
   }
-  const resolutionFilter = getResolutionFilter(encoder.encoder, normalizedInputs.target_resolution);
   extraTokens = upsertVideoFilterTokens(extraTokens, resolutionFilter);
   pushLog(`Encoder selected as ${encoder.encoder}.`);
   pushLog(`Container for output selected as ${targetContainer}.`);
@@ -871,12 +911,16 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     return response;
   }
   let icqQuality = 0;
-  if (normalizedInputs.target_quality > 0 && !isQsvEncoder(encoder.encoder)) {
+  let nvencCq = 0;
+  if (normalizedInputs.target_quality > 0 && isNvencEncoder(encoder.encoder)) {
+    nvencCq = nvencCqFromTargetQuality(normalizedInputs.target_quality);
+    pushLog(`target_quality ${normalizedInputs.target_quality} maps to NVENC CQ ${nvencCq}${encoder.gpuName ? ` on ${encoder.gpuName}` : ""}.`);
+  } else if (normalizedInputs.target_quality > 0 && !isQsvEncoder(encoder.encoder)) {
     if (bitrateResult.targetBitrate <= 0) {
-      pushLog(`target_quality is only implemented for QSV and no target bitrate is set for ${encoder.encoder}. Skipping transcode.`);
+      pushLog(`target_quality is only implemented for QSV and NVENC and no target bitrate is set for ${encoder.encoder}. Skipping transcode.`);
       return response;
     }
-    pushLog(`target_quality is only implemented for QSV; ${encoder.encoder} uses bitrate mode.`);
+    pushLog(`target_quality is only implemented for QSV and NVENC; ${encoder.encoder} uses bitrate mode.`);
   } else if (normalizedInputs.target_quality > 0 && bitrateResult.targetBitrate <= 0) {
     icqQuality = normalizedInputs.target_quality;
     pushLog(`No bitrate ceiling configured; using ICQ ${icqQuality} unconditionally.`);
@@ -908,15 +952,14 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
   const rateControl = getEncoderRateControl({
     encoder: encoder.encoder,
     icqQuality,
+    nvencCq,
+    bframes: normalizedInputs.bframes_enabled ? normalizedInputs.bframes_value : 0,
     currentBitrate: bitrateResult.currentBitrate,
     targetBitrate: bitrateResult.targetBitrate,
     maximumBitrate: bitrateResult.maximumBitrate
   });
   pushLog(`Encoder rate control = ${rateControl.description}.`);
-  const prefixTokens = [];
-  if (encoder.encoder.includes("nvenc")) {
-    prefixTokens.push(...tokenizeArguments(runtime.getNvdecHwaccelPreset(file)));
-  }
+  const prefixTokens = [...tokenizeArguments(nvdecPreset)];
   prefixTokens.push(...tokenizeArguments(encoder.inputArgs ?? ""));
   if (targetContainer === "ts" || targetContainer === "avi") {
     prefixTokens.push("-fflags", "+genpts");
