@@ -195,6 +195,19 @@ var streamNeedsResize = (stream, targetResolution) => {
   if (!target) return false;
   return stream.width > target.width || stream.height > target.height;
 };
+var getSoftwareTenBitFormat = (encoder) => {
+  if (encoder.includes("nvenc")) return "";
+  if (encoder.includes("qsv") || encoder.includes("amf") || encoder.includes("vaapi")) return "p010le";
+  return "yuv420p10le";
+};
+var getTenBitTokens = (encoder, runtime, file) => {
+  if (encoder.includes("nvenc")) {
+    return tokenizeArguments(runtime.getNvenc10BitFormatArg(file));
+  }
+  const tokens = ["-pix_fmt", getSoftwareTenBitFormat(encoder)];
+  if (encoder.startsWith("hevc_")) tokens.push("-profile:v", "main10");
+  return tokens;
+};
 var getResolutionFilter = (encoder, targetResolution) => {
   if (targetResolution === "none") return "";
   const target = resolutionTargets[targetResolution];
@@ -246,8 +259,26 @@ var getEncoderRateControl = (input) => {
   }
   if (input.encoder === "hevc_qsv" || input.encoder === "h264_qsv") {
     return {
-      tokens: [...base, "-extbrc", "1", "-look_ahead_depth", "32"],
-      description: "QSV bitrate mode with extbrc lookahead"
+      tokens: [
+        "-preset",
+        "veryslow",
+        ...base,
+        "-extbrc",
+        "1",
+        "-look_ahead_depth",
+        "40",
+        "-b_strategy",
+        "1",
+        "-bf",
+        "7",
+        "-adaptive_i",
+        "1",
+        "-adaptive_b",
+        "1",
+        "-g",
+        "256"
+      ],
+      description: "QSV EncTools quality (veryslow, B-pyramid, lookahead 40)"
     };
   }
   if (input.encoder === "libx265" || input.encoder === "libx264") {
@@ -697,7 +728,7 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
   const mapTokens = streamMapTokens(mappedStreamIndexes);
   let extraTokens = [];
   if (normalizedInputs.enable_10bit) {
-    extraTokens = [...extraTokens, ...tokenizeArguments(runtime.getNvenc10BitFormatArg(file))];
+    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file)];
   }
   if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
     extraTokens.push("-bf", String(normalizedInputs.bframes_value));
