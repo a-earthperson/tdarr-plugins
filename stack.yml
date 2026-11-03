@@ -1,0 +1,190 @@
+networks:
+  arr:
+    external: true
+
+x-nfsopts-xerxes: &x-nfsopts-xerxes
+  type: nfs
+  o: addr=192.168.1.2,rw,nfsvers=4.2,async,actimeo=60,lookupcache=all,nconnect=16,noatime,rdirplus
+
+volumes:
+  stub:
+  nfs_tank_tv:
+    name: nfs_tank_tv
+    driver: local
+    driver_opts:
+      <<: *x-nfsopts-xerxes
+      device: ":/tank/tv"
+  nfs_tank_movies:
+    name: nfs_tank_movies
+    driver: local
+    driver_opts:
+      <<: *x-nfsopts-xerxes
+      device: ":/tank/movies"
+  nfs_scratch_downloads:
+    name: nfs_scratch_downloads
+    driver: local
+    driver_opts:
+      <<: *x-nfsopts-xerxes
+      device: ":/downloads"
+
+x-env-base: &x-env-base
+  PGID: 1000
+  PUID: 1000
+  TZ: America/New_York
+
+x-env-server: &x-env-server
+  <<: *x-env-base
+  UMASK_SET: 002
+  serverURL: http://tdarr:8266
+  enableDockerAutoUpdater: "true"
+  webUIPort: 8265
+  inContainer: "true"
+  ffmpegVersion: 7
+  auth: "false"
+  openBrowser: "false"
+  maxLogSizeMB: 1
+  cronPluginUpdate:
+
+x-env-node: &x-env-node
+  <<: *x-env-server
+  nodeType: mapped
+  apiKey:
+  pollInterval: 2000
+  transcodegpuWorkers: 1
+  transcodecpuWorkers: 0
+  healthcheckgpuWorkers: 0
+  healthcheckcpuWorkers: 0
+  NVIDIA_DRIVER_CAPABILITIES: "all"
+  NVIDIA_VISIBLE_DEVICES: "all"
+
+x-deploy-base: &x-deploy-base
+  mode: replicated
+  replicas: 1
+  placement:
+    constraints:
+      - node.hostname == xerxes
+
+x-common: &x-common
+  networks:
+    - arr
+  environment:
+    <<: *x-env-node
+  deploy:
+    <<: *x-deploy-base
+
+x-node-base: &x-node-base
+  #image: ghcr.io/haveagitgat/tdarr_node:latest
+  image: ghcr.io/haveagitgat/tdarr_node:3.04.00
+  <<: *x-common
+  # nice/ionice exec into s6-overlay's /init (still PID 1); every process the node spawns inherits nice 19 / best-effort I/O 7
+  entrypoint: ["nice", "-n", "19", "ionice", "-c", "2", "-n", "7", "/init"]
+  # Docker's default seccomp profile only allows set_mempolicy/mbind with CAP_SYS_NICE; without it libnuma
+  # (x265, dav1d, etc.) prints "set_mempolicy: Operation not permitted" and NUMA-local allocation is disabled.
+  cap_add:
+    - SYS_NICE
+  volumes:
+    - /dev/dri:/dev/dri
+    - /etc/localtime:/etc/localtime:ro
+    - type: tmpfs
+      target: /tcache
+      tmpfs:
+        size: 10737418240 # 10GB
+    - type: tmpfs
+      target: /temp
+      tmpfs:
+        size: 10737418240 # 10GB
+    - nfs_tank_tv:/media/tv
+    - nfs_tank_movies:/media/movies
+    - stub:/media/tv/downloads
+    - stub:/media/movies/downloads
+    - nfs_scratch_downloads:/downloads
+
+services:
+  server:
+    hostname: "tdarr"
+    image: ghcr.io/haveagitgat/tdarr:3.04.00
+    #image: ghcr.io/haveagitgat/tdarr:latest
+    <<: *x-common
+    environment:
+      <<: *x-env-server
+      internalNode: "false"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - type: tmpfs
+        target: /temp
+        tmpfs:
+          size: 10737418240 # 10GB
+      - type: tmpfs
+        target: /tcache
+        tmpfs:
+          size: 10737418240 # 10GB
+      - /downloads:/downloads
+      - /tank/tv:/media/tv
+      - /tank/movies:/media/movies
+      - stub:/media/tv/downloads
+      - stub:/media/movies/downloads
+      - /deployments/on-xerxes/docker-swarm/arr/tdarr/d0/volumes/server:/app/server
+    deploy:
+      <<: *x-deploy-base
+      labels:
+        traefik.constraint-label: traefik-public
+        traefik.swarm.network: arr
+        traefik.enable: "true"
+        traefik.http.routers.tdarr-https.entrypoints: https
+        traefik.http.routers.tdarr-https.tls: 'true'
+        traefik.http.routers.tdarr-https.tls.certresolver: le
+        traefik.http.routers.tdarr-https.rule: Host(`d0.earthperson.org`)
+        traefik.http.routers.tdarr-https.middlewares: oauth-chain@swarm
+        traefik.http.routers.tdarr-https.service: tdarr
+        traefik.http.services.tdarr.loadbalancer.server.port: 8265
+
+  rtx3070:
+    <<: *x-node-base
+    environment:
+      <<: *x-env-node
+      transcodegpuWorkers: 2
+      healthcheckcpuWorkers: 32
+      NVIDIA_VISIBLE_DEVICES: "0"
+      nodeName: "rtx3070"
+
+  rtx5060:
+    <<: *x-node-base
+    environment:
+      <<: *x-env-node
+      transcodegpuWorkers: 2
+      healthcheckcpuWorkers: 32
+      nodeName: "rtx5060"
+
+  coffeelake:
+    <<: *x-node-base
+    environment:
+      <<: *x-env-node
+      transcodegpuWorkers: 1
+      nodeName: "coffeelake"
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == gateway
+
+  cometlake:
+    <<: *x-node-base
+    environment:
+      <<: *x-env-node
+      NVIDIA_DRIVER_CAPABILITIES:
+      NVIDIA_VISIBLE_DEVICES:
+      nodeName: "cometlake"
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == shelly
+
+  gtx1660:
+    <<: *x-node-base
+    environment:
+      <<: *x-env-node
+      transcodegpuWorkers: 2
+      nodeName: "gtx1660"
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == shelly

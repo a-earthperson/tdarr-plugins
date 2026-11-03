@@ -217,6 +217,19 @@ var getResolutionFilter = (useCudaScaler, targetResolution) => {
   const dimensions = `w='trunc(iw*${scaleFactor}/2)*2':h='trunc(ih*${scaleFactor}/2)*2'`;
   return useCudaScaler ? `scale_cuda=${dimensions}:interp_algo=bicubic` : `scale=${dimensions}`;
 };
+var NVDEC_8BIT_420_PIX_FMTS = ["yuv420p", "yuvj420p", "nv12"];
+var NVDEC_HIGH_BIT_420_PIX_FMTS = ["yuv420p10le", "yuv420p12le", "p010le", "p016le"];
+var NVDEC_HIGH_BIT_CODECS = ["hevc", "vp9"];
+var nvdecCanDecodeStream = (stream) => {
+  const pixFmt = typeof stream?.pix_fmt === "string" ? stream.pix_fmt.trim().toLowerCase() : "";
+  if (pixFmt === "") return true;
+  if (NVDEC_8BIT_420_PIX_FMTS.includes(pixFmt)) return true;
+  const codec = typeof stream?.codec_name === "string" ? stream.codec_name.trim().toLowerCase() : "";
+  return NVDEC_HIGH_BIT_CODECS.includes(codec) && NVDEC_HIGH_BIT_420_PIX_FMTS.includes(pixFmt);
+};
+var INTERLACED_FIELD_ORDERS = ["tt", "bb", "tb", "bt"];
+var isInterlacedStream = (stream) => typeof stream?.field_order === "string" && INTERLACED_FIELD_ORDERS.includes(stream.field_order.trim().toLowerCase());
+var getDeinterlaceFilter = (useCudaFilter) => `${useCudaFilter ? "bwdif_cuda" : "bwdif"}=mode=send_frame:deint=interlaced`;
 var upsertVideoFilterTokens = (tokens, videoFilter) => {
   if (!videoFilter) return [...tokens];
   const next = [...tokens];
@@ -614,6 +627,12 @@ var isDisposableVideoStream = (stream) => {
   const codecName = normalize(stream.codec_name);
   return codecName === "mjpeg" || codecName === "png";
 };
+var unmuxableStreamTypes = {
+  mkv: ["data"],
+  mp4: ["attachment"]
+};
+var isUnmuxableStreamType = (container, codecType) => (unmuxableStreamTypes[container] ?? []).includes(codecType);
+var isUnprobedAudioStream = (stream) => normalize(stream.codec_type) === "audio" && !(Number(stream.channels) > 0 && Number(stream.sample_rate) > 0);
 var analyzeStreams = (params) => {
   const result = {
     primaryVideoStreamIndex: -1,
@@ -630,6 +649,11 @@ var analyzeStreams = (params) => {
       return;
     }
     const codecType = normalize(stream.codec_type);
+    if (isUnprobedAudioStream(stream)) {
+      params.pushLog(`Dropping audio stream 0:${index} (${stream.codec_name}) because its channel layout/sample rate could not be probed.`);
+      result.mappingChanged = true;
+      return;
+    }
     if (codecType === "subtitle" && typeof stream.codec_name === "string" && getContainerConformanceDrops(params.targetContainer, stream.codec_name)) {
       params.pushLog(
         `Dropping subtitle stream 0:${index} because codec ${stream.codec_name} is not supported in ${params.targetContainer}.`
@@ -644,8 +668,9 @@ var analyzeStreams = (params) => {
       result.mappingChanged = true;
       return;
     }
-    if (params.forceConform && params.targetContainer === "mkv" && normalize(stream.codec_type) === "data") {
-      params.pushLog(`Dropping stream 0:${index} because data streams are dropped for mkv conformance.`);
+    if (isUnmuxableStreamType(params.targetContainer, codecType)) {
+      const codecName = typeof stream.codec_name === "string" ? stream.codec_name : "unknown";
+      params.pushLog(`Dropping ${codecType} stream 0:${index} (${codecName}) because ${params.targetContainer} cannot contain ${codecType} streams.`);
       result.mappingChanged = true;
       return;
     }
@@ -887,20 +912,29 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     ...streamResult.passthroughStreamIndexes
   ];
   const mapTokens = streamMapTokens(mappedStreamIndexes);
-  const nvdecOptions = isNvencEncoder(encoder.encoder) && normalizedInputs.nvenc_cpu_scaling ? { softwareFrames: true } : void 0;
-  const nvdecPreset = isNvencEncoder(encoder.encoder) ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
+  const primaryVideoStream = streams[streamResult.primaryVideoStreamIndex];
+  const nvdecUsable = isNvencEncoder(encoder.encoder) && nvdecCanDecodeStream(primaryVideoStream);
+  if (isNvencEncoder(encoder.encoder) && !nvdecUsable) {
+    pushLog(`NVDEC cannot decode ${primaryVideoStream.codec_name} ${primaryVideoStream.pix_fmt}; decoding and scaling on CPU, encoding with NVENC.`);
+  }
+  const nvdecOptions = nvdecUsable && normalizedInputs.nvenc_cpu_scaling ? { softwareFrames: true } : void 0;
+  const nvdecPreset = nvdecUsable ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
   const cudaFrames = /-hwaccel_output_format\s+cuda\b/.test(nvdecPreset);
+  const deinterlaceFilter = isInterlacedStream(primaryVideoStream) ? getDeinterlaceFilter(cudaFrames) : "";
+  if (deinterlaceFilter) {
+    pushLog(`Source is interlaced (field_order ${primaryVideoStream.field_order}); deinterlacing with ${deinterlaceFilter.split("=")[0]}.`);
+  }
   let resolutionFilter = getResolutionFilter(cudaFrames, normalizedInputs.target_resolution);
   let extraTokens = [];
   if (normalizedInputs.enable_10bit && cudaFrames && resolutionFilter) {
     resolutionFilter += ":format=p010le";
   } else if (normalizedInputs.enable_10bit) {
-    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file, nvdecOptions)];
+    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file, cudaFrames ? nvdecOptions : { softwareFrames: true })];
   }
   if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
     extraTokens.push("-bf", String(normalizedInputs.bframes_value));
   }
-  extraTokens = upsertVideoFilterTokens(extraTokens, resolutionFilter);
+  extraTokens = upsertVideoFilterTokens(extraTokens, [deinterlaceFilter, resolutionFilter].filter(Boolean).join(","));
   pushLog(`Encoder selected as ${encoder.encoder}.`);
   pushLog(`Container for output selected as ${targetContainer}.`);
   pushLog(`Resolution target selected as ${normalizedInputs.target_resolution}.`);
