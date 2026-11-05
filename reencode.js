@@ -484,6 +484,9 @@ var estimateQsvIcqBitrate = async (params) => {
 var TARGET_CODECS = ["hevc", "h264"];
 var TARGET_CONTAINERS = ["mkv", "mp4", "avi", "ts", "original"];
 var TARGET_RESOLUTIONS = ["none", "720p", "480p"];
+var AUDIO_COPY = "copy";
+var AUDIO_AAC_STEREO_VBR = "2.0 AAC @ 128kbps VBR";
+var TARGET_AUDIO = [AUDIO_COPY, AUDIO_AAC_STEREO_VBR];
 var isFiniteNonNegative = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 var parseBoolean = (value, fallback) => {
   if (typeof value === "boolean") return value;
@@ -497,6 +500,10 @@ var parseNumber = (value, fallback) => {
 var parseEnum = (value, allowed, fallback) => {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : fallback;
   return allowed.includes(normalized) ? normalized : fallback;
+};
+var parseAudioTarget = (value) => {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : AUDIO_COPY;
+  return normalized === AUDIO_AAC_STEREO_VBR.toLowerCase() ? AUDIO_AAC_STEREO_VBR : AUDIO_COPY;
 };
 var parseExcludedGpuIds = (value) => {
   if (typeof value !== "string") return [];
@@ -525,6 +532,7 @@ var normalizeInputs = (rawInputs, response) => {
     bframes_enabled: parseBoolean(rawInputs.bframes_enabled, false),
     bframes_value: Math.max(0, Math.round(parseNumber(rawInputs.bframes_value, 5))),
     force_conform: parseBoolean(rawInputs.force_conform, false),
+    target_audio: parseAudioTarget(rawInputs.target_audio),
     exclude_gpus: typeof rawInputs.exclude_gpus === "string" ? rawInputs.exclude_gpus : "",
     exclude_gpu_ids: parseExcludedGpuIds(rawInputs.exclude_gpus)
   };
@@ -746,6 +754,160 @@ var analyzeStreams = (params) => {
 };
 var streamMapTokens = (streamIndexes) => streamIndexes.flatMap((streamIndex) => ["-map", `0:${streamIndex}`]);
 
+// src/audio/transcode.ts
+var LOUDNORM_I = -23;
+var LOUDNORM_LRA = 7;
+var LOUDNORM_TP = -2;
+var AAC_VBR_MODE = 4;
+var AAC_SAMPLE_RATE = 48000;
+var STEREO_DOWNMIX_FILTER = "pan=stereo|FL<FL+FC+BL+SL+WL+TFL+TBL+BC+0.5*LFE|FR<FR+FC+BR+SR+WR+TFR+TBR+BC+0.5*LFE";
+var METADATA_SKIP = /^(bps|duration|number_of_|_statistics|source_id)/i;
+var DISPOSITION_FLAGS = [
+  "default",
+  "dub",
+  "original",
+  "comment",
+  "lyrics",
+  "karaoke",
+  "forced",
+  "hearing_impaired",
+  "visual_impaired",
+  "clean_effects",
+  "captions",
+  "descriptions",
+  "dependent"
+];
+var isAudioStream = (stream) => normalize(stream?.codec_type) === "audio";
+var audioChannelCount = (stream) => {
+  const n = Number(stream?.channels);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+var isMultiChannelAudio = (stream) => isAudioStream(stream) && audioChannelCount(stream) > 2;
+var audioPrepFilter = () => `${STEREO_DOWNMIX_FILTER},aresample=${AAC_SAMPLE_RATE}`;
+var loudnormMeasureFilter = () => `${audioPrepFilter()},loudnorm=I=${LOUDNORM_I}:LRA=${LOUDNORM_LRA}:TP=${LOUDNORM_TP}:print_format=json`;
+var loudnormApplyFilter = (measured) => {
+  const base = audioPrepFilter();
+  if (!measured) return `${base},loudnorm=I=${LOUDNORM_I}:LRA=${LOUDNORM_LRA}:TP=${LOUDNORM_TP}`;
+  return `${base},loudnorm=I=${LOUDNORM_I}:LRA=${LOUDNORM_LRA}:TP=${LOUDNORM_TP}:measured_I=${measured.input_i}:measured_LRA=${measured.input_lra}:measured_TP=${measured.input_tp}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true`;
+};
+var findJsonBlockAfter = (lines, startIndex) => {
+  const collected = [];
+  let collecting = false;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!collecting && !trimmed.includes("{")) continue;
+    collecting = true;
+    collected.push(trimmed);
+    if (trimmed.includes("}")) break;
+  }
+  return collected.length > 0 ? collected.join("") : null;
+};
+var isLoudnormMeasuredValues = (value) => {
+  if (typeof value !== "object" || value === null) return false;
+  return typeof value.input_i === "string" && typeof value.input_tp === "string" && typeof value.input_lra === "string" && typeof value.input_thresh === "string" && typeof value.target_offset === "string";
+};
+var parseLoudnormReport = (report) => {
+  const lines = String(report ?? "").split(/\r?\n/);
+  const values = [];
+  lines.forEach((line, index) => {
+    if (!line.includes("Parsed_loudnorm")) return;
+    const jsonBlock = findJsonBlockAfter(lines, index);
+    if (!jsonBlock) return;
+    try {
+      const parsed = JSON.parse(jsonBlock);
+      if (isLoudnormMeasuredValues(parsed)) values.push(parsed);
+    } catch {
+    }
+  });
+  return values;
+};
+var audioEncoderProbe = async (params) => new Promise((resolve) => {
+  const extra = params.extra ?? "";
+  const command = `${params.ffmpegPath} -hide_banner -nostdin -f lavfi -i anullsrc=r=48000:cl=stereo:d=0.2 -c:a ${params.encoder} ${extra} -f null /dev/null`;
+  params.childProcess.exec(command, (error) => resolve(!error));
+});
+var selectAacEncoder = async (params) => {
+  if (await audioEncoderProbe({ ffmpegPath: params.ffmpegPath, childProcess: params.childProcess, encoder: "libfdk_aac", extra: `-vbr ${AAC_VBR_MODE}` })) {
+    return {
+      encoder: "libfdk_aac",
+      tokens: (outputAudioIndex) => [`-c:a:${outputAudioIndex}`, "libfdk_aac", `-vbr:a:${outputAudioIndex}`, String(AAC_VBR_MODE)]
+    };
+  }
+  return {
+    encoder: "aac",
+    tokens: (outputAudioIndex) => [`-c:a:${outputAudioIndex}`, "aac", `-q:a:${outputAudioIndex}`, "1"]
+  };
+};
+var audioMetadataTokens = (outputAudioIndex, stream) => {
+  const spec = `s:a:${outputAudioIndex}`;
+  const tokens = [];
+  const tags = stream.tags && typeof stream.tags === "object" ? stream.tags : {};
+  for (const [key, value] of Object.entries(tags)) {
+    if (METADATA_SKIP.test(key) || /encoder/i.test(key)) continue;
+    if (typeof value !== "string" || value === "" || /[\s"']/.test(value)) continue;
+    tokens.push(`-metadata:${spec}`, `${key}=${value}`);
+  }
+  const disposition = stream.disposition && typeof stream.disposition === "object" ? stream.disposition : {};
+  const flags = DISPOSITION_FLAGS.filter((flag) => Number(disposition[flag]) === 1);
+  tokens.push(`-disposition:a:${outputAudioIndex}`, flags.length > 0 ? flags.join("+") : "0");
+  return tokens;
+};
+var measureLoudnormForStreams = async (params) => {
+  const { childProcess, ffmpegPath, filePath, streamIndexes } = params;
+  if (streamIndexes.length === 0) return [];
+  const labels = streamIndexes.map((_, i) => `ln${i}`);
+  const filterComplex = streamIndexes.map((index, i) => `[0:${index}]${loudnormMeasureFilter()}[${labels[i]}]`).join(";");
+  const args = [
+    "-hide_banner",
+    "-nostdin",
+    "-nostats",
+    "-i",
+    filePath,
+    "-filter_complex",
+    filterComplex,
+    ...labels.flatMap((label) => ["-map", `[${label}]`]),
+    "-f",
+    "null",
+    "-"
+  ];
+  const result = await runFfmpeg(childProcess, ffmpegPath, args);
+  const measured = parseLoudnormReport(result.stderr);
+  return streamIndexes.map((index, i) => ({
+    streamIndex: index,
+    measured: measured[i] ?? null,
+    error: (() => {
+      if (result.ok) return measured[i] ? "" : "no loudnorm JSON in ffmpeg output";
+      const stderrLines = String(result.stderr ?? "").split("\n").map((line) => line.trim()).filter((line) => line && !/libva info|amdgpu:/.test(line));
+      return stderrLines[stderrLines.length - 1] || String(result.error?.message ?? "ffmpeg failed").split("\n")[0];
+    })()
+  }));
+};
+var audioEncodeTokens = (params) => {
+  const tokens = [];
+  let outputAudioIndex = 0;
+  for (const srcIndex of params.mappedStreamIndexes) {
+    const stream = params.streams[srcIndex];
+    if (!isAudioStream(stream)) continue;
+    if (isMultiChannelAudio(stream)) {
+      const measurement = params.measurements.find((entry) => entry.streamIndex === srcIndex);
+      tokens.push(
+        ...params.aac.tokens(outputAudioIndex),
+        `-ar:a:${outputAudioIndex}`,
+        String(AAC_SAMPLE_RATE),
+        `-filter:a:${outputAudioIndex}`,
+        loudnormApplyFilter(measurement?.measured ?? null),
+        ...audioMetadataTokens(outputAudioIndex, stream)
+      );
+    }
+    outputAudioIndex += 1;
+  }
+  return tokens;
+};
+var describeAudioStream = (stream) => {
+  const layout = typeof stream.channel_layout === "string" && stream.channel_layout !== "" ? stream.channel_layout : `${audioChannelCount(stream)}ch`;
+  return `${stream.codec_name} ${layout}`;
+};
+
 // src/tdarr/details.ts
 var details = () => ({
   id: "Tdarr_Plugin_00td_action_transcode",
@@ -754,7 +916,7 @@ var details = () => ({
   Type: "Video",
   Operation: "Transcode",
   Description: "Transcode a video file using ffmpeg. GPU transcoding will be used if possible.",
-  Version: "3.5",
+  Version: "3.6",
   Tags: "pre-processing,ffmpeg,video only,nvenc h265,configurable",
   Inputs: [
     {
@@ -794,6 +956,16 @@ var details = () => ({
         options: ["none", "720p", "480p"]
       },
       tooltip: "Optionally rescale the video to the selected resolution target. This is independent of target_bitrate_multiplier and does not adjust bitrate calculations."
+    },
+    {
+      name: "target_audio",
+      type: "string",
+      defaultValue: "copy",
+      inputUI: {
+        type: "dropdown",
+        options: TARGET_AUDIO
+      },
+      tooltip: "Audio handling. copy leaves every audio stream unchanged. 2.0 AAC @ 128kbps VBR transcodes only multi-channel (>2) streams to stereo AAC-LC 48 kHz VBR (~128 kbps, libfdk_aac VBR 4) after an ITU-style L/R downmix (center and surrounds folded into left/right; LFE at -6 dB) and two-pass EBU R128 loudnorm (I=-23, LRA=7, TP=-2). Stereo and mono streams are always copied, including when other streams in the same file are transcoded. Language, title, and disposition are preserved."
     },
     {
       name: "try_use_gpu",
@@ -927,20 +1099,6 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     normalizedInputs.target_quality > 0
   );
   if (!bitrateResult.valid) return response;
-  if (bitrateResult.currentBitrate <= normalizedInputs.bitrate_cutoff * 1e3) {
-    pushLog(`Current bitrate is below cutoff ${normalizedInputs.bitrate_cutoff} kbps.`);
-    return response;
-  }
-  const encoder = await selectEncoder({
-    response,
-    inputs: normalizedInputs,
-    otherArguments,
-    childProcess
-  });
-  if (!encoder.encoder) {
-    pushLog("No encoder could be selected.");
-    return response;
-  }
   const streams = file.ffProbeData?.streams ?? [];
   const streamResult = analyzeStreams({
     streams,
@@ -958,43 +1116,34 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     ...streamResult.passthroughStreamIndexes
   ];
   const mapTokens = streamMapTokens(mappedStreamIndexes);
-  const primaryVideoStream = streams[streamResult.primaryVideoStreamIndex];
-  const nvdecUsable = isNvencEncoder(encoder.encoder) && nvdecCanDecodeStream(primaryVideoStream);
-  if (isNvencEncoder(encoder.encoder) && !nvdecUsable) {
-    pushLog(`NVDEC cannot decode ${primaryVideoStream.codec_name} ${primaryVideoStream.pix_fmt}; decoding and scaling on CPU, encoding with NVENC.`);
+  const transcodeAudioIndexes = normalizedInputs.target_audio === AUDIO_COPY
+    ? []
+    : mappedStreamIndexes.filter((index) => isMultiChannelAudio(streams[index]));
+  const audioNeedsEncode = transcodeAudioIndexes.length > 0;
+  const belowCutoff = bitrateResult.currentBitrate <= normalizedInputs.bitrate_cutoff * 1e3;
+  const videoAlreadyTarget = streamResult.primaryVideoCodec === normalizedInputs.target_codec && !streamResult.resizeRequired;
+  const videoNeedsEncode = !belowCutoff && !videoAlreadyTarget;
+  if (normalizedInputs.target_audio !== AUDIO_COPY) {
+    for (const index of mappedStreamIndexes) {
+      const stream = streams[index];
+      if (!isAudioStream(stream)) continue;
+      if (isMultiChannelAudio(stream)) {
+        pushLog(`Audio 0:${index} (${describeAudioStream(stream)}) will be transcoded to stereo AAC VBR.`);
+      } else {
+        pushLog(`Audio 0:${index} (${describeAudioStream(stream)}) is stereo/mono; copying.`);
+      }
+    }
   }
-  const nvdecOptions = nvdecUsable && normalizedInputs.nvenc_cpu_scaling ? { softwareFrames: true } : void 0;
-  const nvdecPreset = nvdecUsable ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
-  const cudaFrames = /-hwaccel_output_format\s+cuda\b/.test(nvdecPreset);
-  const deinterlaceFilter = isInterlacedStream(primaryVideoStream) ? getDeinterlaceFilter(cudaFrames) : "";
-  if (deinterlaceFilter) {
-    pushLog(`Source is interlaced (field_order ${primaryVideoStream.field_order}); deinterlacing with ${deinterlaceFilter.split("=")[0]}.`);
+  if (belowCutoff) {
+    pushLog(`Current bitrate is below cutoff ${normalizedInputs.bitrate_cutoff} kbps.`);
+    if (!audioNeedsEncode) return response;
+    pushLog("Video encode skipped due to bitrate cutoff; converting multi-channel audio only.");
   }
-  let resolutionFilter = getResolutionFilter(cudaFrames, normalizedInputs.target_resolution);
-  let extraTokens = [];
-  if (normalizedInputs.enable_10bit && cudaFrames && resolutionFilter) {
-    resolutionFilter += ":format=p010le";
-  } else if (normalizedInputs.enable_10bit) {
-    extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file, cudaFrames ? nvdecOptions : { softwareFrames: true })];
-  }
-  if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
-    extraTokens.push("-bf", String(normalizedInputs.bframes_value));
-  }
-  const uploadFilter = encoder.hwUpload ? `format=${normalizedInputs.enable_10bit ? "p010le" : "nv12"},hwupload` : "";
-  extraTokens = upsertVideoFilterTokens(extraTokens, [deinterlaceFilter, resolutionFilter, uploadFilter].filter(Boolean).join(","));
-  pushLog(`Encoder selected as ${encoder.encoder}.`);
-  pushLog(`Container for output selected as ${targetContainer}.`);
-  pushLog(`Resolution target selected as ${normalizedInputs.target_resolution}.`);
-  pushLog(`Current bitrate = ${bitrateResult.currentBitrate}`);
-  pushLog("Bitrate settings:");
-  pushLog(`Target = ${bitrateResult.targetBitrate}`);
-  pushLog(`Minimum = ${bitrateResult.minimumBitrate}`);
-  pushLog(`Maximum = ${bitrateResult.maximumBitrate}`);
-  if (streamResult.primaryVideoCodec === normalizedInputs.target_codec && file.container === targetContainer && !streamResult.resizeRequired && !streamResult.mappingChanged) {
+  if (!videoNeedsEncode && !audioNeedsEncode && file.container === targetContainer && !streamResult.mappingChanged) {
     pushLog(`File is already ${normalizedInputs.target_codec} and in ${targetContainer}.`);
     return response;
   }
-  if (streamResult.primaryVideoCodec === normalizedInputs.target_codec && !streamResult.resizeRequired) {
+  if (!videoNeedsEncode && !audioNeedsEncode) {
     pushLog(
       `File video is already ${normalizedInputs.target_codec} but stream mapping/container needs normalization. Remuxing.`
     );
@@ -1002,57 +1151,130 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     response.processFile = true;
     return response;
   }
-  let icqQuality = 0;
-  let nvencCq = 0;
-  if (normalizedInputs.target_quality > 0 && isNvencEncoder(encoder.encoder)) {
-    nvencCq = nvencCqFromTargetQuality(normalizedInputs.target_quality);
-    pushLog(`target_quality ${normalizedInputs.target_quality} maps to NVENC CQ ${nvencCq}${encoder.gpuName ? ` on ${encoder.gpuName}` : ""}.`);
-  } else if (normalizedInputs.target_quality > 0 && !isQsvEncoder(encoder.encoder)) {
-    if (bitrateResult.targetBitrate <= 0) {
-      pushLog(`target_quality is only implemented for QSV and NVENC and no target bitrate is set for ${encoder.encoder}. Skipping transcode.`);
+  let encoder = { encoder: "" };
+  let extraTokens = [];
+  let nvdecPreset = "";
+  if (videoNeedsEncode) {
+    encoder = await selectEncoder({
+      response,
+      inputs: normalizedInputs,
+      otherArguments,
+      childProcess
+    });
+    if (!encoder.encoder) {
+      pushLog("No encoder could be selected.");
       return response;
     }
-    pushLog(`target_quality is only implemented for QSV and NVENC; ${encoder.encoder} uses bitrate mode.`);
-  } else if (normalizedInputs.target_quality > 0 && bitrateResult.targetBitrate <= 0) {
-    icqQuality = normalizedInputs.target_quality;
-    pushLog(`No bitrate ceiling configured; using ICQ ${icqQuality} unconditionally.`);
-  } else if (normalizedInputs.target_quality > 0) {
-    const ceiling = bitrateResult.targetBitrate;
-    const estimate = await estimateQsvIcqBitrate({
-      childProcess,
-      ffmpegPath: otherArguments?.ffmpegPath ?? "ffmpeg",
-      filePath: file.file,
-      durationSeconds: durationResult.duration,
-      videoStreamIndex: streamResult.primaryVideoStreamIndex,
-      encoder,
-      icqQuality: normalizedInputs.target_quality,
-      extraTokens
-    });
-    if (!estimate.valid) {
-      pushLog(`ICQ ${normalizedInputs.target_quality} bitrate estimate failed (${estimate.reason}); using bitrate ceiling.`);
-    } else {
-      const estimateKbps = Math.round(estimate.bitrate / 1e3);
-      const ceilingKbps = Math.round(ceiling / 1e3);
-      if (estimate.bitrate <= ceiling) {
-        icqQuality = normalizedInputs.target_quality;
-        pushLog(`ICQ ${icqQuality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, within ceiling ${ceilingKbps} kbps. Using ICQ.`);
+    const primaryVideoStream = streams[streamResult.primaryVideoStreamIndex];
+    const nvdecUsable = isNvencEncoder(encoder.encoder) && nvdecCanDecodeStream(primaryVideoStream);
+    if (isNvencEncoder(encoder.encoder) && !nvdecUsable) {
+      pushLog(`NVDEC cannot decode ${primaryVideoStream.codec_name} ${primaryVideoStream.pix_fmt}; decoding and scaling on CPU, encoding with NVENC.`);
+    }
+    const nvdecOptions = nvdecUsable && normalizedInputs.nvenc_cpu_scaling ? { softwareFrames: true } : void 0;
+    nvdecPreset = nvdecUsable ? runtime.getNvdecHwaccelPreset(file, nvdecOptions) : "";
+    const cudaFrames = /-hwaccel_output_format\s+cuda\b/.test(nvdecPreset);
+    const deinterlaceFilter = isInterlacedStream(primaryVideoStream) ? getDeinterlaceFilter(cudaFrames) : "";
+    if (deinterlaceFilter) {
+      pushLog(`Source is interlaced (field_order ${primaryVideoStream.field_order}); deinterlacing with ${deinterlaceFilter.split("=")[0]}.`);
+    }
+    let resolutionFilter = getResolutionFilter(cudaFrames, normalizedInputs.target_resolution);
+    if (normalizedInputs.enable_10bit && cudaFrames && resolutionFilter) {
+      resolutionFilter += ":format=p010le";
+    } else if (normalizedInputs.enable_10bit) {
+      extraTokens = [...extraTokens, ...getTenBitTokens(encoder.encoder, runtime, file, cudaFrames ? nvdecOptions : { softwareFrames: true })];
+    }
+    if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
+      extraTokens.push("-bf", String(normalizedInputs.bframes_value));
+    }
+    const uploadFilter = encoder.hwUpload ? `format=${normalizedInputs.enable_10bit ? "p010le" : "nv12"},hwupload` : "";
+    extraTokens = upsertVideoFilterTokens(extraTokens, [deinterlaceFilter, resolutionFilter, uploadFilter].filter(Boolean).join(","));
+    pushLog(`Encoder selected as ${encoder.encoder}.`);
+  }
+  pushLog(`Container for output selected as ${targetContainer}.`);
+  pushLog(`Resolution target selected as ${normalizedInputs.target_resolution}.`);
+  pushLog(`Current bitrate = ${bitrateResult.currentBitrate}`);
+  pushLog("Bitrate settings:");
+  pushLog(`Target = ${bitrateResult.targetBitrate}`);
+  pushLog(`Minimum = ${bitrateResult.minimumBitrate}`);
+  pushLog(`Maximum = ${bitrateResult.maximumBitrate}`);
+  let icqQuality = 0;
+  let nvencCq = 0;
+  let rateControl = { tokens: [], description: "" };
+  if (videoNeedsEncode) {
+    if (normalizedInputs.target_quality > 0 && isNvencEncoder(encoder.encoder)) {
+      nvencCq = nvencCqFromTargetQuality(normalizedInputs.target_quality);
+      pushLog(`target_quality ${normalizedInputs.target_quality} maps to NVENC CQ ${nvencCq}${encoder.gpuName ? ` on ${encoder.gpuName}` : ""}.`);
+    } else if (normalizedInputs.target_quality > 0 && !isQsvEncoder(encoder.encoder)) {
+      if (bitrateResult.targetBitrate <= 0) {
+        pushLog(`target_quality is only implemented for QSV and NVENC and no target bitrate is set for ${encoder.encoder}. Skipping transcode.`);
+        return response;
+      }
+      pushLog(`target_quality is only implemented for QSV and NVENC; ${encoder.encoder} uses bitrate mode.`);
+    } else if (normalizedInputs.target_quality > 0 && bitrateResult.targetBitrate <= 0) {
+      icqQuality = normalizedInputs.target_quality;
+      pushLog(`No bitrate ceiling configured; using ICQ ${icqQuality} unconditionally.`);
+    } else if (normalizedInputs.target_quality > 0) {
+      const ceiling = bitrateResult.targetBitrate;
+      const estimate = await estimateQsvIcqBitrate({
+        childProcess,
+        ffmpegPath: otherArguments?.ffmpegPath ?? "ffmpeg",
+        filePath: file.file,
+        durationSeconds: durationResult.duration,
+        videoStreamIndex: streamResult.primaryVideoStreamIndex,
+        encoder,
+        icqQuality: normalizedInputs.target_quality,
+        extraTokens
+      });
+      if (!estimate.valid) {
+        pushLog(`ICQ ${normalizedInputs.target_quality} bitrate estimate failed (${estimate.reason}); using bitrate ceiling.`);
       } else {
-        pushLog(`ICQ ${normalizedInputs.target_quality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, above ceiling ${ceilingKbps} kbps. Using VBR at ceiling.`);
+        const estimateKbps = Math.round(estimate.bitrate / 1e3);
+        const ceilingKbps = Math.round(ceiling / 1e3);
+        if (estimate.bitrate <= ceiling) {
+          icqQuality = normalizedInputs.target_quality;
+          pushLog(`ICQ ${icqQuality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, within ceiling ${ceilingKbps} kbps. Using ICQ.`);
+        } else {
+          pushLog(`ICQ ${normalizedInputs.target_quality} estimated at ${estimateKbps} kbps over ${estimate.sampledSeconds.toFixed(0)}s sampled, above ceiling ${ceilingKbps} kbps. Using VBR at ceiling.`);
+        }
       }
     }
+    rateControl = getEncoderRateControl({
+      encoder: encoder.encoder,
+      icqQuality,
+      nvencCq,
+      bframes: normalizedInputs.bframes_enabled ? normalizedInputs.bframes_value : 0,
+      currentBitrate: bitrateResult.currentBitrate,
+      targetBitrate: bitrateResult.targetBitrate,
+      maximumBitrate: bitrateResult.maximumBitrate
+    });
+    pushLog(`Encoder rate control = ${rateControl.description}.`);
   }
-  const rateControl = getEncoderRateControl({
-    encoder: encoder.encoder,
-    icqQuality,
-    nvencCq,
-    bframes: normalizedInputs.bframes_enabled ? normalizedInputs.bframes_value : 0,
-    currentBitrate: bitrateResult.currentBitrate,
-    targetBitrate: bitrateResult.targetBitrate,
-    maximumBitrate: bitrateResult.maximumBitrate
-  });
-  pushLog(`Encoder rate control = ${rateControl.description}.`);
-  const prefixTokens = [...tokenizeArguments(nvdecPreset)];
-  prefixTokens.push(...tokenizeArguments(encoder.inputArgs ?? ""));
+  let audioTokens = [];
+  if (audioNeedsEncode) {
+    const ffmpegPath = otherArguments?.ffmpegPath ?? "ffmpeg";
+    const aac = await selectAacEncoder({ ffmpegPath, childProcess });
+    pushLog(`AAC encoder selected as ${aac.encoder} (${aac.encoder === "libfdk_aac" ? `VBR ${AAC_VBR_MODE}` : "native VBR q=1"}, 48 kHz stereo).`);
+    const measurements = await measureLoudnormForStreams({
+      childProcess,
+      ffmpegPath,
+      filePath: file.file,
+      streamIndexes: transcodeAudioIndexes
+    });
+    for (const measurement of measurements) {
+      if (measurement.measured) {
+        pushLog(`Audio 0:${measurement.streamIndex} loudnorm first pass: I=${measurement.measured.input_i} LUFS, TP=${measurement.measured.input_tp} dBTP, LRA=${measurement.measured.input_lra}.`);
+      } else {
+        pushLog(`Audio 0:${measurement.streamIndex} loudnorm first pass failed (${measurement.error}); using single-pass loudnorm.`);
+      }
+    }
+    audioTokens = audioEncodeTokens({
+      mappedStreamIndexes,
+      streams,
+      measurements,
+      aac
+    });
+  }
+  const prefixTokens = videoNeedsEncode ? [...tokenizeArguments(nvdecPreset), ...tokenizeArguments(encoder.inputArgs ?? "")] : [];
   if (targetContainer === "ts" || targetContainer === "avi") {
     prefixTokens.push("-fflags", "+genpts");
   }
@@ -1060,17 +1282,21 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
     ...mapTokens,
     "-c",
     "copy",
-    "-c:v",
-    encoder.encoder,
-    ...tokenizeArguments(encoder.outputArgs ?? ""),
-    ...rateControl.tokens,
+    ...videoNeedsEncode ? ["-c:v", encoder.encoder, ...tokenizeArguments(encoder.outputArgs ?? ""), ...rateControl.tokens] : [],
+    ...audioTokens,
     "-max_muxing_queue_size",
     "9999",
     ...extraTokens
   ];
   response.preset = renderArguments([...prefixTokens, "<io>", ...transcodeTokens]);
   response.processFile = true;
-  pushLog(`File is not in ${normalizedInputs.target_codec}. Transcoding.`);
+  if (videoNeedsEncode && audioNeedsEncode) {
+    pushLog(`File is not in ${normalizedInputs.target_codec}. Transcoding video and multi-channel audio.`);
+  } else if (videoNeedsEncode) {
+    pushLog(`File is not in ${normalizedInputs.target_codec}. Transcoding.`);
+  } else {
+    pushLog("Video stream copied; transcoding multi-channel audio.");
+  }
   return response;
 };
 var plugin = createPlugin();
