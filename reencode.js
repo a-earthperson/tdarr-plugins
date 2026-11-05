@@ -36,6 +36,8 @@ __export(src_exports, {
 });
 module.exports = __toCommonJS(src_exports);
 var import_node_child_process = require("child_process");
+var import_node_fs = require("fs");
+var import_node_os = require("os");
 
 // src/encoder/nvencDevice.ts
 var getBestNvencDevice = (params) => {
@@ -90,14 +92,47 @@ var encoderProbe = async (params) => new Promise((resolve) => {
     resolve(!error);
   });
 });
+var listRenderNodes = () => {
+  try {
+    return import_node_fs.readdirSync("/dev/dri").filter((name) => /^renderD\d+$/.test(name)).sort().map((name) => `/dev/dri/${name}`);
+  } catch {
+    return [];
+  }
+};
+var VAAPI_DIMENSION_PROBE = { width: 850, height: 358 };
+var vaapiOutputDimensionsCorrect = (params) => new Promise((resolve) => {
+  const { width, height } = VAAPI_DIMENSION_PROBE;
+  const output = `${import_node_os.tmpdir()}/reencode-vaapi-probe-${process.pid}-${Date.now()}.mkv`;
+  const cleanup = () => {
+    try {
+      import_node_fs.unlinkSync(output);
+    } catch {
+    }
+  };
+  const encode = `${params.ffmpegPath} -nostdin -y -v error ${params.inputArgs} -f lavfi -i color=c=black:s=${width}x${height}:d=0.5:r=30 ${params.filter} -c:v ${params.encoder} ${output}`;
+  params.childProcess.exec(encode, (encodeError) => {
+    if (encodeError) {
+      cleanup();
+      resolve(false);
+      return;
+    }
+    params.childProcess.exec(`${params.ffmpegPath} -nostdin -hide_banner -i ${output} -frames:v 1 -vf showinfo -f null -`, (decodeError, _stdout, stderr) => {
+      cleanup();
+      const match = /\bs:(\d+)x(\d+)/.exec(String(stderr ?? ""));
+      resolve(!decodeError && match !== null && Number(match[1]) === width && Number(match[2]) === height);
+    });
+  });
+});
 var gpuCandidates = () => [
   { encoder: "hevc_nvenc" },
   { encoder: "hevc_amf" },
-  {
+  ...listRenderNodes().map((device) => ({
     encoder: "hevc_vaapi",
-    inputArgs: "-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi",
-    filter: "-vf format=nv12,hwupload"
-  },
+    device,
+    inputArgs: `-vaapi_device ${device}`,
+    filter: "-vf format=nv12,hwupload",
+    hwUpload: true
+  })),
   { encoder: "hevc_rkmpp" },
   { encoder: "hevc_qsv" },
   { encoder: "hevc_videotoolbox" },
@@ -127,11 +162,19 @@ var selectEncoder = async (params) => {
       });
       if (available) enabled.push(candidate);
     }
-    if (enabled.length > 0) {
-      let selected = enabled[0];
+    const qsv = enabled.find((candidate) => candidate.encoder.includes("qsv"));
+    let pool = enabled;
+    while (pool.length > 0) {
+      let selected = pool[0];
       if (selected.encoder.includes("vaapi")) {
-        const qsv = enabled.find((candidate) => candidate.encoder.includes("qsv"));
-        if (qsv) selected = qsv;
+        if (qsv) {
+          selected = qsv;
+        } else if (!await vaapiOutputDimensionsCorrect({ ffmpegPath, childProcess, ...selected })) {
+          response.infoLog += `${selected.encoder} on ${selected.device} writes a wrong HEVC conformance window (decoded size differs from encoded size); not using it.
+`;
+          pool = pool.slice(1);
+          continue;
+        }
       }
       if (selected.encoder.includes("nvenc")) {
         selected = getBestNvencDevice({
@@ -204,6 +247,9 @@ var getSoftwareTenBitFormat = (encoder) => {
 var getTenBitTokens = (encoder, runtime, file, nvdecOptions) => {
   if (encoder.includes("nvenc")) {
     return tokenizeArguments(runtime.getNvenc10BitFormatArg(file, nvdecOptions));
+  }
+  if (encoder.includes("vaapi")) {
+    return encoder.startsWith("hevc_") ? ["-profile:v", "main10"] : [];
   }
   const tokens = ["-pix_fmt", getSoftwareTenBitFormat(encoder)];
   if (encoder.startsWith("hevc_")) tokens.push("-profile:v", "main10");
@@ -934,7 +980,8 @@ var createPlugin = (options) => async (file, librarySettings, inputs, otherArgum
   if (bframeSupport.has(encoder.encoder) && normalizedInputs.bframes_enabled) {
     extraTokens.push("-bf", String(normalizedInputs.bframes_value));
   }
-  extraTokens = upsertVideoFilterTokens(extraTokens, [deinterlaceFilter, resolutionFilter].filter(Boolean).join(","));
+  const uploadFilter = encoder.hwUpload ? `format=${normalizedInputs.enable_10bit ? "p010le" : "nv12"},hwupload` : "";
+  extraTokens = upsertVideoFilterTokens(extraTokens, [deinterlaceFilter, resolutionFilter, uploadFilter].filter(Boolean).join(","));
   pushLog(`Encoder selected as ${encoder.encoder}.`);
   pushLog(`Container for output selected as ${targetContainer}.`);
   pushLog(`Resolution target selected as ${normalizedInputs.target_resolution}.`);
